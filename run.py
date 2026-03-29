@@ -19,8 +19,8 @@ import argparse
 from selfhealing_agent import Agent
 
 # ── Configure your author here ──────────────────────────────────────────────
-AUTHOR_NAME = "YOUR NAME HERE"
-SCHOLAR_PROFILE = "https://scholar.google.com/citations?user=YOUR_USER_ID_HERE"
+AUTHOR_NAME = "Niklas Kempynck"
+SCHOLAR_PROFILE = "https://scholar.google.com/citations?user=u3ooblkAAAAJ&hl=en"
 # Find your user ID: go to your Google Scholar profile, the URL contains ?user=XXXXX
 # ─────────────────────────────────────────────────────────────────────────────
 
