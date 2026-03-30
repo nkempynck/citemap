@@ -2,8 +2,10 @@ __pycache__/
 *.pyc
 venv/
 .env
+.DS_Store
 memory/
 citations.csv
 citations_summary.txt
-scrape_scholar.py
+citation_network.html
+scrape_citations.py
 agent.log

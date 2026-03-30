@@ -1,63 +1,51 @@
-# 📚 Google Scholar Citation Tracker
+# 📚 Citation Tracker
 
-Track all articles that cited a specific author's papers on Google Scholar. Generates a CSV with citation details and a summary report.
+Track all papers that cited a specific author's work, using the [OpenAlex](https://openalex.org) open API. Generates a CSV, summary report, and interactive citation network graph.
 
-Built with the [selfhealing-agent](https://github.com/nkempynck/selfhealing-agent) package.
+Built with [selfhealing-agent](https://github.com/nkempynck/selfhealing-agent).
+
+## Why OpenAlex instead of Google Scholar?
+
+Google Scholar has no API and aggressively blocks automated access. OpenAlex is a free, open index of 250M+ scholarly works with a proper API — no scraping, no blocking, no CAPTCHAs.
 
 ## Setup
 
 ```bash
-git clone https://github.com/nkempynck/scholar-citations.git
-cd scholar-citations
+git clone https://github.com/nkempynck/citation-tracker.git
+cd citation-tracker
 
-conda create -n scholar python=3.11 -y
-conda activate scholar
-
+conda create -n citations python=3.11 -y
+conda activate citations
 pip install -r requirements.txt
 
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_API_KEY="sk-ant-..."  # only needed for agent mode
 ```
 
 ## Configure
 
-Edit `run.py` and set your author:
-
-```python
-AUTHOR_NAME = "Jane Doe"
-SCHOLAR_PROFILE = "https://scholar.google.com/citations?user=XXXXX"
-```
-
-To find the user ID, go to the author's Google Scholar profile — the URL contains `?user=XXXXX`.
+Edit `run.py` and set `AUTHOR_NAME` (and optionally `OPENALEX_AUTHOR_ID`). To find the ID, search at [openalex.org/authors](https://openalex.org/authors).
 
 ## Usage
 
 ```bash
 python run.py              # normal: script first, agent fallback
 python run.py --agent      # force agent mode
-python run.py --script     # script only, no agent fallback
+python run.py --script     # script only
 ```
 
 ## Output
 
-- **`citations.csv`** — all citing articles with title, authors, year, citation count, venue, URL, and which paper was cited
-- **`citations_summary.txt`** — overview with totals, top cited papers, yearly breakdown, and common venues
+- **`citations.csv`** — all citing papers with title, authors, year, citations, venue, DOI, URL, and which paper was cited
+- **`citations_summary.txt`** — author profile, totals, top papers, yearly breakdown, common venues
+- **`citation_network.html`** — interactive graph visualization (open in browser)
 
 ## How it works
 
-First run: the AI agent figures out how to scrape Google Scholar (using the `scholarly` Python package), writes a standalone script, and saves it as `scrape_scholar.py`.
+First run: the AI agent calls the OpenAlex API, writes a standalone script, and generates all outputs.
 
-After that: `python run.py` just runs the standalone script directly — no AI, no API cost.
-
-If Google Scholar changes something and the script breaks, the agent automatically takes over and fixes it.
-
-## Notes
-
-- Google Scholar has no official API and blocks automated requests aggressively
-- The agent uses the `scholarly` package which handles most anti-bot measures
-- For authors with many highly-cited papers, the full scrape can take a while due to rate limits
-- This tool is for personal academic use
+After that: `python run.py` runs the standalone script directly — no AI, no API cost (just the free OpenAlex API).
 
 ## Cost
 
-- **Standalone script:** Free
-- **Agent (fallback):** ~$0.05–$0.30 per run via the Anthropic API
+- **Standalone script:** Free (OpenAlex API is free)
+- **Agent (fallback):** ~$0.05–$0.30 via Anthropic API, only when needed

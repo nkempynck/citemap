@@ -1,16 +1,15 @@
 """
-Google Scholar Citation Tracker
-===============================
-Uses the selfhealing-agent package to scrape Google Scholar citations
-for a specific author and generate a CSV overview.
+Citation Tracker (OpenAlex)
+===========================
+Uses the selfhealing-agent package to fetch citation data from the
+OpenAlex API and generate a CSV + citation network graph.
 
-First run:  Claude figures out how to scrape the data and writes scrape_scholar.py
-Next runs:  Runs scrape_scholar.py directly (no API cost)
-If broken:  Agent takes over, reads the script, fixes it
+OpenAlex is free, open, and doesn't block automated requests.
+No scraping needed — just clean API calls.
 
 Usage:
     python run.py              # normal: script first, agent fallback
-    python run.py --agent      # force agent mode (re-explore everything)
+    python run.py --agent      # force agent mode
     python run.py --script     # script only, no agent fallback
 """
 
@@ -20,71 +19,103 @@ from selfhealing_agent import Agent
 
 # ── Configure your author here ──────────────────────────────────────────────
 AUTHOR_NAME = "Niklas Kempynck"
-SCHOLAR_PROFILE = "https://scholar.google.com/citations?user=u3ooblkAAAAJ&hl=en"
-# Find your user ID: go to your Google Scholar profile, the URL contains ?user=XXXXX
+# Find your OpenAlex ID at: https://openalex.org/authors?search=YOUR+NAME
+# Or let the agent find it by name
+OPENALEX_AUTHOR_ID = ""  # e.g. "A1234567890" — leave empty to search by name
 # ─────────────────────────────────────────────────────────────────────────────
 
 agent = Agent(
-    name="scholar-citations",
+    name="citation-tracker",
     instructions=f"""\
-Scrape Google Scholar to find all articles that cited papers by a specific author
-and generate a comprehensive CSV overview.
+Fetch citation data for an author from the OpenAlex API and generate:
+1. A CSV of all papers that cited this author's work
+2. A summary report
+3. An HTML citation network graph
 
 Author: {AUTHOR_NAME}
-Google Scholar profile: {SCHOLAR_PROFILE}
+OpenAlex Author ID: {OPENALEX_AUTHOR_ID or "unknown — search by name first"}
 
-Steps:
-1. Get all publications by this author from their Google Scholar profile
-2. For each publication, find all articles that cited it
-3. Collect for each citing article: title, authors, year, citation count, \
-journal/venue, URL, and which paper of the author it cited
-4. Remove duplicates (same article may cite multiple papers by the author — \
-in that case, combine the cited_papers into a comma-separated list)
-5. Save the results as a CSV file
+=== OPENALEX API BASICS ===
 
-Output file: citations.csv
-Columns: title, authors, year, citation_count, venue, url, cited_papers
+OpenAlex is a free, open API for scholarly data. No scraping needed.
+API docs: https://docs.openalex.org
+Note: Add an email parameter to be polite: &mailto=your@email.com
 
-Also generate a summary file: citations_summary.txt with:
-- Total number of unique citing papers
-- Top 10 most-cited citing papers
-- Breakdown by year (how many citations per year)
-- Most common venues/journals
+Key endpoints:
+- Search author: https://api.openalex.org/authors?search={AUTHOR_NAME}
+- Author's works: https://api.openalex.org/works?filter=author.id:AUTHOR_ID&sort=cited_by_count:desc&per_page=100
+- Papers citing a work: https://api.openalex.org/works?filter=cites:WORK_ID&per_page=100&cursor=*
+- Use cursor pagination for large result sets: add &cursor=* to first request,
+  then use the "next_cursor" from the response for subsequent pages
 
-Important technical notes:
-- Google Scholar blocks automated requests aggressively
-- Try the 'scholarly' Python package first (pip install scholarly) — it has \
-built-in handling for Google Scholar's anti-bot measures
-- If scholarly doesn't work, try Selenium with random delays (2-5 seconds \
-between requests)
-- Handle pagination — authors with popular papers can have thousands of citations
-- Be patient with rate limits — add delays between requests
-- Some citing articles won't have full metadata — include what's available
-- Sort the final CSV by year (newest first), then by citation count
+=== STEPS ===
 
-Print progress as you go:
-- "Fetching publications for [author]..."
-- "Found X publications"
-- "Fetching citations for: [paper title] (Y citations)..."
-- "Page Z of citations for [paper title]..."
-- "Total unique citing papers found: N"
+1. Find the author's OpenAlex ID (search by name if not provided)
+   - Verify it's the right person by checking institution/works
+   - Print author name, institution, total works, total citations
+
+2. Fetch ALL works by this author
+   - Use pagination if more than 100 works
+   - For each work: get title, year, DOI, cited_by_count, OpenAlex ID
+
+3. For each work, fetch ALL citing papers
+   - Use cursor pagination: &cursor=* for first page, then use next_cursor
+   - For each citing paper: title, authors (first author + et al), year,
+     cited_by_count, venue/journal, DOI, URL
+   - Track which of the author's papers it cites
+   - Print progress: "Fetching citations for: [title] (N citations)..."
+
+4. Process the data:
+   - Remove duplicates (same paper may cite multiple works — merge cited_papers)
+   - Sort by year (newest first), then by citation_count
+
+5. Save citations.csv with columns:
+   title, authors, year, citation_count, venue, doi, url, cited_papers
+
+6. Save citations_summary.txt with:
+   - Author profile (name, institution, h-index, total citations)
+   - Total unique citing papers found
+   - Expected vs actual count (from author's total citation count)
+   - Top 10 most-cited citing papers
+   - Breakdown by year
+   - Most common venues/journals
+
+7. Generate citation_network.html — an interactive graph visualization:
+   - Use vis.js (from CDN) for the network graph
+   - Nodes = papers (author's papers + citing papers)
+   - Author's papers: larger nodes, colored differently
+   - Node size proportional to citation count
+   - Edges = citation links (from citing paper to cited paper)
+   - On hover: show paper title, year, citation count
+   - On click: open the paper URL
+   - Include a legend and basic controls (zoom, filter by year)
+   - Make it a standalone HTML file that opens in any browser
+
+=== VALIDATION ===
+
+- Compare your total unique citing papers with the author's total
+  citation count from OpenAlex. They should be close (within 80%).
+- NEVER use fake or placeholder data. Every row must come from the API.
+- If the API returns errors, report them honestly — do not make up data.
+- Print expected vs actual counts at the end.
+
+=== IMPORTANT ===
+
+- Be polite to the API: add small delays (0.5s) between requests
+- Use cursor pagination for large result sets, not page numbers
+- The OpenAlex API is reliable — if something fails, it's likely a
+  bug in your code, not the API blocking you
 """,
     output_file="citations.csv",
-    script_file="scrape_scholar.py",
+    script_file="scrape_citations.py",
+    max_tokens=8192,
 )
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Google Scholar Citation Tracker")
-    parser.add_argument("--agent", action="store_true", help="Force agent mode (re-explore everything)")
+    parser = argparse.ArgumentParser(description="Citation Tracker (OpenAlex)")
+    parser.add_argument("--agent", action="store_true", help="Force agent mode")
     parser.add_argument("--script", action="store_true", help="Script only, no agent fallback")
     args = parser.parse_args()
-
-    if AUTHOR_NAME == "YOUR NAME HERE":
-        print("Please configure your author in run.py first:")
-        print("  1. Set AUTHOR_NAME to the author's name")
-        print("  2. Set SCHOLAR_PROFILE to their Google Scholar profile URL")
-        print("     (go to scholar.google.com, find the profile, copy the URL)")
-        exit(1)
 
     if args.agent:
         agent.run_agent_only()
