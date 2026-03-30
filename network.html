@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Citation Network</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+:root {
+  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
+  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
+  --accent: #2d6a4f; --accent-dark: #1b4332;
+  --coral: #d85a30; --blue: #185fa5; --purple: #534ab7;
+  --sans: 'Outfit', system-ui, sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); }
+.loading { display: flex; justify-content: center; align-items: center; height: 100vh; color: var(--text2); }
+.layout { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+.sidebar { background: white; border-right: 1px solid rgba(0,0,0,0.08); overflow-y: auto; padding: 24px; }
+.sidebar h1 { font-family: var(--serif); font-size: 1.3rem; font-weight: 600; margin-bottom: 4px; }
+.sidebar .sub { font-size: 0.82rem; color: var(--text2); margin-bottom: 24px; font-weight: 300; }
+.control-group { margin-bottom: 18px; }
+.control-group label { display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); margin-bottom: 6px; font-weight: 500; }
+.control-group select, .control-group input[type=range] { width: 100%; font-family: var(--sans); }
+.control-group select { padding: 6px 8px; border: 1px solid var(--bg3); border-radius: 6px; font-size: 0.88rem; background: var(--bg); }
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input { flex: 1; }
+.range-val { font-family: var(--serif); font-weight: 600; font-size: 0.9rem; min-width: 34px; text-align: right; }
+.control-help { font-size: 0.75rem; color: var(--text3); margin-top: 5px; line-height: 1.35; }
+.legend { margin-top: 24px; }
+.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.node-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bg3); display: none; }
+.node-info h3 { font-family: var(--serif); font-size: 1rem; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
+.node-info p { font-size: 0.82rem; color: var(--text2); margin-bottom: 4px; }
+.node-info a { color: var(--blue); text-decoration: none; font-size: 0.82rem; }
+.node-info a:hover { text-decoration: underline; }
+.graph-container { position: relative; }
+#network { width: 100%; height: 100vh; }
+.graph-controls { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; }
+.graph-btn { padding: 6px 12px; border: 1px solid var(--bg3); border-radius: 6px; background: white; cursor: pointer; font-family: var(--sans); font-size: 0.82rem; }
+.graph-btn:hover { background: var(--bg2); }
+.graph-stats { position: absolute; bottom: 16px; left: 16px; font-size: 0.78rem; color: var(--text3); background: rgba(250,250,247,0.92); padding: 6px 12px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div class="loading" id="loading">Loading citation network...</div>
+<div class="layout" id="app" style="display:none">
+  <div class="sidebar">
+    <h1 id="title">Citation network</h1>
+    <p class="sub" id="subtitle"></p>
+
+    <div class="control-group">
+      <label>Filter by type</label>
+      <select id="typeFilter">
+        <option value="all">All papers</option>
+        <option value="no-ref">Author + citing (no references)</option>
+        <option value="author-only">Author's works only</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>Year range</label>
+      <div class="range-row">
+        <span class="range-val" id="yearMinVal"></span>
+        <input type="range" id="yearMin">
+        <input type="range" id="yearMax">
+        <span class="range-val" id="yearMaxVal"></span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Minimum citations</label>
+      <div class="range-row">
+        <input type="range" id="citeMin" min="0" max="100" value="0" step="0.1">
+        <span class="range-val" id="citeMinVal">0</span>
+      </div>
+      <div class="control-help">Uses a log-like slider so low citation thresholds are easier to tune.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Node size scale</label>
+      <div class="range-row">
+        <input type="range" id="sizeScale" min="0.25" max="5" value="1.8" step="0.05">
+        <span class="range-val" id="sizeScaleVal">1.8</span>
+      </div>
+      <div class="control-help">Keeps node sizes more compact overall.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Node sizing</label>
+      <select id="sizeMode">
+        <option value="asinh" selected>By citation count (asinh)</option>
+        <option value="sqrt">By citation count (sqrt)</option>
+        <option value="power">By citation count (power)</option>
+        <option value="log">By citation count (log)</option>
+        <option value="linear">By citation count (linear)</option>
+        <option value="uniform">Uniform</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>Base label threshold</label>
+      <div class="range-row">
+        <input type="range" id="labelThreshold" min="0" max="200" value="25" step="1">
+        <span class="range-val" id="labelThresholdVal">25</span>
+      </div>
+      <div class="control-help">Only papers above this citation count are labeled at the default zoom. Zooming in reveals more labels.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Zoom label reveal</label>
+      <div class="range-row">
+        <input type="range" id="zoomLabelSensitivity" min="0.2" max="3" value="1.2" step="0.1">
+        <span class="range-val" id="zoomLabelSensitivityVal">1.2</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Base font size</label>
+      <div class="range-row">
+        <input type="range" id="fontBase" min="8" max="20" value="11" step="1">
+        <span class="range-val" id="fontBaseVal">11</span>
+      </div>
+      <div class="control-help">Text shrinks as you zoom to avoid labels overwhelming the graph.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Edge opacity</label>
+      <div class="range-row">
+        <input type="range" id="edgeOpacity" min="0.02" max="0.5" value="0.08" step="0.01">
+        <span class="range-val" id="edgeOpacityVal">0.08</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Node spacing</label>
+      <div class="range-row">
+        <input type="range" id="avoidOverlap" min="0" max="1" value="0.65" step="0.05">
+        <span class="range-val" id="avoidOverlapVal">0.65</span>
+      </div>
+      <div class="control-help">Pushes nodes apart more strongly to reduce overlap.</div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#185fa5"></div> References</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
+      <div style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Labels always show for the author's papers. Other labels appear progressively as you zoom in.</div>
+    </div>
+
+    <div class="node-info" id="nodeInfo">
+      <h3 id="infoTitle"></h3>
+      <p id="infoAuthors"></p>
+      <p id="infoMeta"></p>
+      <a id="infoLink" href="#" target="_blank">Open paper</a>
+    </div>
+  </div>
+
+  <div class="graph-container">
+    <div id="network"></div>
+    <div class="graph-controls">
+      <button class="graph-btn" onclick="network.fit({animation:true})">Fit</button>
+      <button class="graph-btn" onclick="togglePhysics()">Physics</button>
+      <button class="graph-btn" onclick="window.open('portal.html')">Portal</button>
+    </div>
+    <div class="graph-stats" id="graphStats"></div>
+  </div>
+</div>
+
+<script>
+let DATA, network, allNodes, allEdges, physicsOn = true, currentScale = 1, maxCitationCount = 1;
+const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', level2: '#534ab7' };
+const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', level2: '#3c3489' };
+const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', level2: '#3c3489' };
+
+function mergePreprints(data) {
+  const titleMap = {};
+  const idRemap = {};
+  data.nodes.forEach(n => {
+    const key = (n.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (titleMap[key]) {
+      const existing = titleMap[key];
+      if (n.cited_by_count > existing.cited_by_count) {
+        idRemap[existing.id] = n.id;
+        existing.id = n.id;
+        existing.cited_by_count = n.cited_by_count;
+        existing.venue = n.venue || existing.venue;
+        existing.doi = n.doi || existing.doi;
+        existing.url = n.url || existing.url;
+        existing.date = n.date && existing.date ? (n.date > existing.date ? n.date : existing.date) : (n.date || existing.date);
+        existing.year = n.year && existing.year ? Math.max(n.year, existing.year) : (n.year || existing.year);
+        if (n.type === 'author') existing.type = 'author';
+      } else {
+        idRemap[n.id] = existing.id;
+        existing.cited_by_count = Math.max(existing.cited_by_count, n.cited_by_count);
+        existing.url = existing.url || n.url;
+        if (n.type === 'author') existing.type = 'author';
+      }
+    } else {
+      titleMap[key] = { ...n };
+    }
+  });
+  const mergedNodes = Object.values(titleMap);
+  const edgeSet = new Set();
+  const mergedEdges = [];
+  data.edges.forEach(e => {
+    const from = idRemap[e.from] || e.from;
+    const to = idRemap[e.to] || e.to;
+    if (from === to) return;
+    const key = from + '>' + to;
+    if (!edgeSet.has(key)) {
+      edgeSet.add(key);
+      mergedEdges.push({ from, to });
+    }
+  });
+  return { ...data, nodes: mergedNodes, edges: mergedEdges };
+}
+
+fetch('citation_data.json')
+  .then(r => r.json())
+  .then(d => { DATA = mergePreprints(d); initGraph(); })
+  .catch(e => { document.getElementById('loading').textContent = 'Error: ' + e; });
+
+function sliderToCitation(v) {
+  const x = Math.max(0, Math.min(100, parseFloat(v) || 0)) / 100;
+  return Math.round(Math.expm1(Math.log(maxCitationCount + 1) * x));
+}
+
+function citationToSlider(c) {
+  if (!maxCitationCount || maxCitationCount <= 1) return 0;
+  return 100 * Math.log((c || 0) + 1) / Math.log(maxCitationCount + 1);
+}
+
+function citationsForScale(cited, mode) {
+  const c = Math.max(0, cited || 0);
+  switch (mode) {
+    case 'sqrt':
+      return Math.sqrt(c);
+    case 'power':
+      return Math.pow(c, 0.35);
+    case 'log':
+      return Math.log1p(c);
+    case 'linear':
+      return c;
+    case 'uniform':
+      return 1;
+    case 'asinh':
+    default:
+      return Math.asinh(c / 6);
+  }
+}
+
+function nodeSize(cited, scale, mode) {
+  if (mode === 'uniform') return 7 + 2.5 * scale;
+  const transformed = citationsForScale(cited, mode);
+  const sizeByMode = {
+    asinh: 5.5 + transformed * 2.2 * scale,
+    sqrt: 5.5 + transformed * 0.6 * scale,
+    power: 5.5 + transformed * 2.0 * scale,
+    log: 5.5 + transformed * 1.5 * scale,
+    linear: 5.5 + transformed * 0.015 * scale,
+  };
+  return Math.max(4, sizeByMode[mode] || sizeByMode.asinh);
+}
+
+function shortTitle(title, maxLen) {
+  if (!title) return '';
+  return title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
+}
+
+function initGraph() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+  document.getElementById('title').textContent = DATA.author.name;
+  document.getElementById('subtitle').textContent = DATA.nodes.length + ' papers, ' + DATA.edges.length + ' citation links';
+
+  const years = DATA.nodes.map(n => n.year).filter(Boolean);
+  const minY = Math.min(...years), maxY = Math.max(...years);
+  const maxCites = Math.max(...DATA.nodes.map(n => n.cited_by_count || 0), 1);
+  maxCitationCount = maxCites;
+  const yrMin = document.getElementById('yearMin');
+  const yrMax = document.getElementById('yearMax');
+  yrMin.min = yrMax.min = minY; yrMin.max = yrMax.max = maxY;
+  yrMin.value = minY; yrMax.value = maxY;
+  document.getElementById('yearMinVal').textContent = minY;
+  document.getElementById('yearMaxVal').textContent = maxY;
+  const citeMin = document.getElementById('citeMin');
+  citeMin.value = citationToSlider(0).toFixed(1);
+  document.getElementById('citeMinVal').textContent = sliderToCitation(citeMin.value);
+
+  buildNetwork();
+
+  ['typeFilter','sizeMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
+  ['yearMin','yearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    if (!el) return;
+    el.addEventListener('input', e => {
+      if (valEl) valEl.textContent = e.target.value;
+      buildNetwork();
+    });
+  });
+  document.getElementById('citeMin').addEventListener('input', e => {
+    document.getElementById('citeMinVal').textContent = sliderToCitation(e.target.value);
+    buildNetwork();
+  });
+}
+
+function buildNetwork() {
+  const typeFilter = document.getElementById('typeFilter').value;
+  const yearMin = parseInt(document.getElementById('yearMin').value);
+  const yearMax = parseInt(document.getElementById('yearMax').value);
+  const citeMin = sliderToCitation(document.getElementById('citeMin').value);
+  const sizeMode = document.getElementById('sizeMode').value || 'asinh';
+  const sizeScale = parseFloat(document.getElementById('sizeScale').value);
+  const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
+  const avoidOverlap = parseFloat(document.getElementById('avoidOverlap').value);
+
+  const visibleIds = new Set();
+  const nodes = [];
+  DATA.nodes.forEach(n => {
+    if (typeFilter === 'no-ref' && (n.type === 'reference' || n.type === 'level2')) return;
+    if (typeFilter === 'author-only' && n.type !== 'author') return;
+    if (n.year && (n.year < yearMin || n.year > yearMax)) return;
+    if ((n.cited_by_count || 0) < citeMin && n.type !== 'author') return;
+    visibleIds.add(n.id);
+    const sz = nodeSize(n.cited_by_count || 0, sizeScale, sizeMode);
+    nodes.push({
+      id: n.id,
+      label: '',
+      hiddenLabel: shortTitle(n.title, 42),
+      title: (n.title || '') + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0),
+      size: sz,
+      color: { background: COLORS[n.type], border: BORDERS[n.type] },
+      borderWidth: n.type === 'author' ? 3 : 1,
+      font: { color: FONT_COLORS[n.type], size: 11, face: 'Outfit', strokeWidth: 3, strokeColor: '#fafaf7' },
+      _data: n,
+    });
+  });
+
+  const edges = [];
+  DATA.edges.forEach(e => {
+    if (visibleIds.has(e.from) && visibleIds.has(e.to)) {
+      edges.push({
+        from: e.from,
+        to: e.to,
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        color: { color: `rgba(0,0,0,${edgeOpacity})`, highlight: 'rgba(0,0,0,0.28)' },
+        width: 0.5
+      });
+    }
+  });
+
+  document.getElementById('graphStats').textContent = nodes.length + ' nodes, ' + edges.length + ' edges · min citations ' + citeMin + (nodes.length === 0 ? ' · no papers match current filters' : '');
+  allNodes = new vis.DataSet(nodes);
+  allEdges = new vis.DataSet(edges);
+
+  const container = document.getElementById('network');
+  const data = { nodes: allNodes, edges: allEdges };
+  const options = {
+    nodes: { shape: 'dot' },
+    edges: { smooth: { type: 'continuous', roundness: 0.15 } },
+    physics: {
+      enabled: physicsOn,
+      stabilization: { iterations: 250, fit: true },
+      barnesHut: {
+        gravitationalConstant: -7000,
+        centralGravity: 0.08,
+        springLength: 190,
+        springConstant: 0.03,
+        damping: 0.16,
+        avoidOverlap: avoidOverlap
+      }
+    },
+    interaction: { hover: true, tooltipDelay: 200, zoomView: true },
+  };
+
+  if (network) network.destroy();
+  network = new vis.Network(container, data, options);
+
+  network.on('click', function(params) {
+    if (params.nodes.length > 0) {
+      const node = allNodes.get(params.nodes[0]);
+      showInfo(node._data);
+    }
+  });
+
+  network.on('zoom', function(params) {
+    currentScale = params.scale;
+    applyDynamicLabels();
+  });
+  network.on('dragEnd', applyDynamicLabels);
+  network.on('stabilizationIterationsDone', function() {
+    network.fit();
+    currentScale = network.getScale();
+    applyDynamicLabels();
+  });
+  setTimeout(() => {
+    if (network) {
+      currentScale = network.getScale();
+      applyDynamicLabels();
+    }
+  }, 50);
+}
+
+function applyDynamicLabels() {
+  if (!allNodes) return;
+  const thresholdBase = parseFloat(document.getElementById('labelThreshold').value);
+  const sensitivity = parseFloat(document.getElementById('zoomLabelSensitivity').value);
+  const fontBase = parseFloat(document.getElementById('fontBase').value);
+  const scale = Math.max(currentScale || 1, 0.05);
+  const revealDivisor = Math.max(0.15, Math.pow(scale, sensitivity));
+  const threshold = thresholdBase / revealDivisor;
+  const fontSize = Math.max(5, Math.min(18, fontBase / Math.pow(scale, 0.42)));
+
+  const updates = [];
+  allNodes.forEach(node => {
+    const cited = node._data.cited_by_count || 0;
+    const showLabel = node._data.type === 'author' || cited >= threshold;
+    updates.push({
+      id: node.id,
+      label: showLabel ? shortTitle(node._data.title, scale > 1.6 ? 70 : 42) : '',
+      font: {
+        color: FONT_COLORS[node._data.type],
+        size: node._data.type === 'author' ? fontSize + 1 : fontSize,
+        face: 'Outfit',
+        strokeWidth: 3,
+        strokeColor: '#fafaf7'
+      }
+    });
+  });
+  allNodes.update(updates);
+}
+
+function showInfo(n) {
+  const info = document.getElementById('nodeInfo');
+  info.style.display = 'block';
+  document.getElementById('infoTitle').textContent = n.title;
+  document.getElementById('infoAuthors').textContent = n.authors || '';
+  document.getElementById('infoMeta').textContent = [n.year, n.venue, (n.cited_by_count || 0) + ' citations', n.type].filter(Boolean).join(' · ');
+  const link = document.getElementById('infoLink');
+  link.href = n.doi || n.url || '#';
+  link.style.display = (n.doi || n.url) ? 'inline' : 'none';
+}
+
+function togglePhysics() {
+  physicsOn = !physicsOn;
+  network.setOptions({ physics: { enabled: physicsOn } });
+}
+</script>
+</body>
+</html>

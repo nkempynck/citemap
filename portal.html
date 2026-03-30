@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Citation Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
+  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
+  --accent: #2d6a4f; --accent-light: #d8f3dc; --accent-dark: #1b4332;
+  --coral: #d85a30; --coral-light: #faece7;
+  --blue: #185fa5; --blue-light: #e6f1fb;
+  --purple: #534ab7; --purple-light: #eeedfe;
+  --border: rgba(0,0,0,0.08);
+  --radius: 10px;
+  --serif: 'Source Serif 4', Georgia, serif;
+  --sans: 'Outfit', system-ui, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); line-height: 1.6; }
+.loading { display: flex; justify-content: center; align-items: center; height: 100vh; font-size: 18px; color: var(--text2); }
+.app { display: none; }
+header { padding: 48px 0 32px; border-bottom: 1px solid var(--border); }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+header h1 { font-family: var(--serif); font-size: 2rem; font-weight: 600; letter-spacing: -0.5px; }
+header p { color: var(--text2); margin-top: 4px; font-weight: 300; }
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 28px 0; }
+.stat { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; }
+.stat-value { font-family: var(--serif); font-size: 1.8rem; font-weight: 600; line-height: 1.2; }
+.stat-label { font-size: 0.8rem; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.stat.accent .stat-value { color: var(--accent); }
+.stat.coral .stat-value { color: var(--coral); }
+.stat.blue .stat-value { color: var(--blue); }
+.stat.purple .stat-value { color: var(--purple); }
+.tabs { display: flex; gap: 4px; margin: 32px 0 0; border-bottom: 2px solid var(--bg3); }
+.tab { padding: 10px 20px; cursor: pointer; font-weight: 400; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; font-size: 0.95rem; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); font-weight: 500; }
+.panel { display: none; padding: 24px 0; }
+.panel.active { display: block; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
+.controls input, .controls select { font-family: var(--sans); padding: 8px 12px; border: 1px solid var(--bg3); border-radius: 6px; font-size: 0.9rem; background: white; }
+.controls input { flex: 1; min-width: 200px; }
+.controls select { min-width: 140px; }
+.btn { font-family: var(--sans); padding: 8px 16px; border: 1px solid var(--bg3); border-radius: 6px; cursor: pointer; font-size: 0.85rem; background: white; color: var(--text); transition: all 0.15s; }
+.btn:hover { background: var(--bg2); }
+.btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+.btn.primary:hover { background: var(--accent-dark); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 1150px; }
+th { text-align: left; padding: 10px 12px; font-weight: 500; color: var(--text2); border-bottom: 2px solid var(--bg3); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; cursor: pointer; user-select: none; white-space: nowrap; }
+th:hover { color: var(--text); }
+th.sorted-asc::after { content: ' ▲'; font-size: 0.65rem; }
+th.sorted-desc::after { content: ' ▼'; font-size: 0.65rem; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:hover td { background: rgba(45,106,79,0.03); }
+td a { color: var(--blue); text-decoration: none; }
+td a:hover { text-decoration: underline; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+.pill.author { background: var(--coral-light); color: var(--coral); }
+.pill.citing { background: var(--accent-light); color: var(--accent-dark); }
+.pill.reference { background: var(--blue-light); color: var(--blue); }
+.pill.level2 { background: var(--purple-light); color: var(--purple); }
+.cite-count { font-family: var(--serif); font-weight: 600; }
+.related-list { display: flex; flex-direction: column; gap: 4px; max-width: 320px; }
+.related-item { font-size: 0.8rem; line-height: 1.35; }
+.related-meta { color: var(--text3); font-size: 0.74rem; }
+.author-works { display: grid; gap: 16px; }
+.work-card { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: box-shadow 0.15s; }
+.work-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.work-card h3 { font-family: var(--serif); font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; line-height: 1.4; }
+.work-card h3 a { color: var(--text); text-decoration: none; }
+.work-card h3 a:hover { color: var(--accent); }
+.work-meta { font-size: 0.82rem; color: var(--text2); display: flex; gap: 16px; flex-wrap: wrap; }
+.work-meta span { white-space: nowrap; }
+.cite-bar { height: 4px; background: var(--bg3); border-radius: 2px; margin-top: 12px; overflow: hidden; }
+.cite-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.4s ease; }
+.year-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; margin: 20px 0; padding-bottom: 24px; position: relative; }
+.year-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; height: 100%; justify-content: flex-end; }
+.year-bar { width: 100%; max-width: 40px; background: var(--accent); border-radius: 3px 3px 0 0; transition: height 0.4s ease; min-height: 2px; }
+.year-bar:hover { opacity: 0.8; }
+.year-label { font-size: 0.7rem; color: var(--text3); position: absolute; bottom: -20px; }
+.year-count { font-size: 0.7rem; color: var(--text2); margin-bottom: 4px; }
+.no-results { padding: 40px; text-align: center; color: var(--text3); }
+footer { padding: 40px 0; text-align: center; color: var(--text3); font-size: 0.8rem; border-top: 1px solid var(--border); margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="loading" id="loading">Loading citation data...</div>
+<div class="app" id="app">
+<header>
+  <div class="wrap">
+    <h1 id="authorName"></h1>
+    <p id="authorMeta"></p>
+  </div>
+</header>
+<div class="wrap">
+  <div class="stats-row" id="statsRow"></div>
+  <div class="tabs">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="all">All papers</div>
+    <div class="tab" data-tab="timeline">Timeline</div>
+  </div>
+
+  <div class="panel active" id="panel-overview">
+    <h2 style="font-family:var(--serif);margin-bottom:16px">Author's works</h2>
+    <div class="author-works" id="authorWorks"></div>
+  </div>
+
+  <div class="panel" id="panel-all">
+    <div class="controls">
+      <input type="text" id="searchInput" placeholder="Search titles, authors, venues...">
+      <select id="typeFilter">
+        <option value="">All types</option>
+        <option value="author">Author's works</option>
+        <option value="citing">Citing papers</option>
+        <option value="reference">References</option>
+        <option value="level2">Level 2</option>
+      </select>
+      <select id="yearFilter">
+        <option value="">All years</option>
+      </select>
+      <select id="minCiteFilter">
+        <option value="0">Any citations</option>
+        <option value="5">5+ citations</option>
+        <option value="10">10+ citations</option>
+        <option value="25">25+ citations</option>
+        <option value="50">50+ citations</option>
+        <option value="100">100+ citations</option>
+      </select>
+      <button class="btn" onclick="window.open('network.html')">Network graph</button>
+      <button class="btn primary" onclick="exportCSV()">Export CSV</button>
+    </div>
+    <div id="tableContainer"></div>
+  </div>
+
+  <div class="panel" id="panel-timeline">
+    <h2 style="font-family:var(--serif);margin-bottom:8px">Citations by year</h2>
+    <p style="color:var(--text2);margin-bottom:16px;font-size:0.9rem">Citing papers grouped by publication year</p>
+    <div class="year-chart" id="yearChart"></div>
+    <h2 style="font-family:var(--serif);margin:32px 0 8px">Top venues</h2>
+    <p style="color:var(--text2);margin-bottom:16px;font-size:0.9rem">Most common journals and venues among citing papers</p>
+    <div id="venueList"></div>
+  </div>
+</div>
+<footer>
+  <div class="wrap">
+    Data from <a href="https://openalex.org" target="_blank" style="color:var(--accent)">OpenAlex</a>.
+    Generated by <a href="https://github.com/nkempynck/selfhealing-agent" target="_blank" style="color:var(--accent)">selfhealing-agent</a>.
+  </div>
+</footer>
+</div>
+<script>
+let DATA = null;
+let sortCol = 'date';
+let sortDir = 'desc';
+let NODE_MAP = new Map();
+let OUT_MAP = new Map();
+let IN_MAP = new Map();
+
+function mergePreprints(data) {
+  const titleMap = {};
+  const idRemap = {};
+  data.nodes.forEach(n => {
+    const key = (n.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (titleMap[key]) {
+      const existing = titleMap[key];
+      if (n.cited_by_count > existing.cited_by_count) {
+        idRemap[existing.id] = n.id;
+        existing.id = n.id;
+        existing.cited_by_count = n.cited_by_count;
+        existing.venue = n.venue || existing.venue;
+        existing.doi = n.doi || existing.doi;
+        existing.url = n.url || existing.url;
+        existing.date = n.date && existing.date ? (n.date > existing.date ? n.date : existing.date) : (n.date || existing.date);
+        existing.year = n.year && existing.year ? Math.max(n.year, existing.year) : (n.year || existing.year);
+        if (n.type === 'author') existing.type = 'author';
+      } else {
+        idRemap[n.id] = existing.id;
+        existing.cited_by_count = Math.max(existing.cited_by_count, n.cited_by_count);
+        existing.url = existing.url || n.url;
+        if (n.type === 'author') existing.type = 'author';
+      }
+    } else {
+      titleMap[key] = { ...n };
+    }
+  });
+  const mergedNodes = Object.values(titleMap);
+  const edgeSet = new Set();
+  const mergedEdges = [];
+  data.edges.forEach(e => {
+    const from = idRemap[e.from] || e.from;
+    const to = idRemap[e.to] || e.to;
+    if (from === to) return;
+    const key = from + '>' + to;
+    if (!edgeSet.has(key)) { edgeSet.add(key); mergedEdges.push({ from, to }); }
+  });
+  return { ...data, nodes: mergedNodes, edges: mergedEdges };
+}
+
+fetch('citation_data.json')
+  .then(r => r.json())
+  .then(d => { DATA = mergePreprints(d); init(); })
+  .catch(e => { document.getElementById('loading').textContent = 'Error loading data: ' + e; });
+
+function initMaps() {
+  NODE_MAP = new Map(DATA.nodes.map(n => [n.id, n]));
+  OUT_MAP = new Map();
+  IN_MAP = new Map();
+  DATA.edges.forEach(e => {
+    if (!OUT_MAP.has(e.from)) OUT_MAP.set(e.from, []);
+    if (!IN_MAP.has(e.to)) IN_MAP.set(e.to, []);
+    OUT_MAP.get(e.from).push(e.to);
+    IN_MAP.get(e.to).push(e.from);
+  });
+}
+
+function init() {
+  initMaps();
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  const a = DATA.author;
+  document.getElementById('authorName').textContent = a.name;
+  document.getElementById('authorMeta').textContent = [a.institution, a.works_count + ' works', a.total_citations + ' total citations'].filter(Boolean).join(' · ');
+  const authorNodes = DATA.nodes.filter(n => n.type === 'author');
+  const citingNodes = DATA.nodes.filter(n => n.type === 'citing');
+  const refNodes = DATA.nodes.filter(n => n.type === 'reference');
+  document.getElementById('statsRow').innerHTML = [
+    stat(authorNodes.length, 'Author works', 'coral'),
+    stat(citingNodes.length, 'Citing papers', 'accent'),
+    stat(refNodes.length, 'References', 'blue'),
+    stat(DATA.edges.length, 'Citation links', 'purple'),
+    stat(a.h_index || '—', 'H-index', ''),
+  ].join('');
+  renderAuthorWorks(authorNodes);
+  populateYears();
+  renderTable();
+  renderTimeline(citingNodes);
+  renderVenues(citingNodes);
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  }));
+  document.getElementById('searchInput').addEventListener('input', renderTable);
+  document.getElementById('typeFilter').addEventListener('change', renderTable);
+  document.getElementById('yearFilter').addEventListener('change', renderTable);
+  document.getElementById('minCiteFilter').addEventListener('change', renderTable);
+}
+
+function stat(val, label, cls) {
+  return '<div class="stat ' + cls + '"><div class="stat-value">' + val + '</div><div class="stat-label">' + label + '</div></div>';
+}
+
+function renderAuthorWorks(works) {
+  const maxCites = Math.max(...works.map(w => w.cited_by_count || 0), 1);
+  const sorted = [...works].sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0));
+  document.getElementById('authorWorks').innerHTML = sorted.map(w =>
+    '<div class="work-card">' +
+      '<h3><a href="' + (w.doi || w.url || '#') + '" target="_blank">' + (w.title || 'Untitled') + '</a></h3>' +
+      '<div class="work-meta">' +
+        '<span>' + (w.authors || '—') + '</span>' +
+        '<span>' + (w.venue || '') + '</span>' +
+        '<span>' + (w.year || '—') + '</span>' +
+        '<span class="cite-count">' + (w.cited_by_count || 0) + ' citations</span>' +
+      '</div>' +
+      '<div class="cite-bar"><div class="cite-bar-fill" style="width:' + (((w.cited_by_count || 0)/maxCites)*100).toFixed(1) + '%"></div></div>' +
+    '</div>'
+  ).join('');
+}
+
+function populateYears() {
+  const years = [...new Set(DATA.nodes.map(n => n.year).filter(Boolean))].sort((a,b) => b - a);
+  const sel = document.getElementById('yearFilter');
+  years.forEach(y => { const o = document.createElement('option'); o.value = y; o.textContent = y; sel.appendChild(o); });
+}
+
+function getFiltered() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const type = document.getElementById('typeFilter').value;
+  const year = document.getElementById('yearFilter').value;
+  const minCite = parseInt(document.getElementById('minCiteFilter').value) || 0;
+  return DATA.nodes.filter(n => {
+    if (type && n.type !== type) return false;
+    if (year && n.year != year) return false;
+    if ((n.cited_by_count || 0) < minCite) return false;
+    if (q) {
+      const related = getRelatedNodes(n).map(x => x.title || '').join(' ');
+      const haystack = [n.title, n.authors, n.venue, related].filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function getRelatedNodes(node) {
+  const out = (OUT_MAP.get(node.id) || []).map(id => NODE_MAP.get(id)).filter(Boolean);
+  const inc = (IN_MAP.get(node.id) || []).map(id => NODE_MAP.get(id)).filter(Boolean);
+  const combined = [...out, ...inc];
+  const seen = new Set();
+  return combined.filter(n => {
+    if (!n || seen.has(n.id)) return false;
+    seen.add(n.id);
+    return true;
+  });
+}
+
+function renderRelatedCell(node) {
+  const refs = (OUT_MAP.get(node.id) || []).map(id => NODE_MAP.get(id)).filter(Boolean);
+  const citedBy = (IN_MAP.get(node.id) || []).map(id => NODE_MAP.get(id)).filter(Boolean);
+  let primary = refs;
+  let label = refs.length ? 'References' : 'Cited by';
+  if (!refs.length && citedBy.length) primary = citedBy;
+  if (!primary.length) return '<span style="color:var(--text3)">—</span>';
+  const shown = [...primary].sort((a,b) => (b.cited_by_count || 0) - (a.cited_by_count || 0)).slice(0, 3);
+  const extra = primary.length - shown.length;
+  return '<div class="related-list">' +
+    '<div class="related-meta">' + label + '</div>' +
+    shown.map(n => '<div class="related-item"><a href="' + (n.doi || n.url || '#') + '" target="_blank">' + escapeHtml(n.title || 'Untitled') + '</a></div>').join('') +
+    (extra > 0 ? '<div class="related-meta">+' + extra + ' more</div>' : '') +
+  '</div>';
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderTable() {
+  let rows = getFiltered();
+  rows.sort((a, b) => {
+    let av = a[sortCol], bv = b[sortCol];
+    if (sortCol === 'related_count') {
+      av = ((OUT_MAP.get(a.id) || []).length + (IN_MAP.get(a.id) || []).length);
+      bv = ((OUT_MAP.get(b.id) || []).length + (IN_MAP.get(b.id) || []).length);
+    }
+    if (av == null) av = sortCol === 'date' ? '' : 0;
+    if (bv == null) bv = sortCol === 'date' ? '' : 0;
+    if (typeof av === 'string') return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    return sortDir === 'asc' ? av - bv : bv - av;
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('tableContainer').innerHTML = '<div class="no-results">No papers match your filters.</div>';
+    return;
+  }
+
+  const cols = [
+    { key: 'title', label: 'Title' },
+    { key: 'authors', label: 'Authors' },
+    { key: 'date', label: 'Date' },
+    { key: 'cited_by_count', label: 'Citations' },
+    { key: 'venue', label: 'Venue' },
+    { key: 'related_count', label: 'Referenced paper(s)' },
+    { key: 'type', label: 'Type' },
+  ];
+
+  let html = '<div class="table-scroll"><table><thead><tr>';
+  cols.forEach(c => {
+    const cls = sortCol === c.key ? (sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+    html += '<th class="' + cls + '" data-col="' + c.key + '">' + c.label + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(n => {
+    const link = n.doi || n.url || '#';
+    html += '<tr>';
+    html += '<td><a href="' + link + '" target="_blank">' + escapeHtml(n.title || '—') + '</a></td>';
+    html += '<td style="color:var(--text2);font-size:0.82rem">' + escapeHtml(n.authors || '—') + '</td>';
+    html += '<td style="font-size:0.82rem;white-space:nowrap">' + escapeHtml(n.date || '—') + '</td>';
+    html += '<td><span class="cite-count">' + (n.cited_by_count || 0) + '</span></td>';
+    html += '<td style="font-size:0.82rem">' + escapeHtml(n.venue || '—') + '</td>';
+    html += '<td>' + renderRelatedCell(n) + '</td>';
+    html += '<td><span class="pill ' + n.type + '">' + n.type + '</span></td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  html += '<p style="margin-top:12px;font-size:0.8rem;color:var(--text3)">' + rows.length + ' papers</p>';
+  document.getElementById('tableContainer').innerHTML = html;
+
+  document.querySelectorAll('#tableContainer th').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      else { sortCol = col; sortDir = (col === 'title' || col === 'authors' || col === 'venue') ? 'asc' : 'desc'; }
+      renderTable();
+    });
+  });
+}
+
+function renderTimeline(citing) {
+  const yearMap = {};
+  citing.forEach(n => { if (n.year) yearMap[n.year] = (yearMap[n.year] || 0) + 1; });
+  const years = Object.keys(yearMap).sort();
+  const maxCount = Math.max(...Object.values(yearMap), 1);
+  document.getElementById('yearChart').innerHTML = years.map(y =>
+    '<div class="year-bar-wrap">' +
+      '<div class="year-count">' + yearMap[y] + '</div>' +
+      '<div class="year-bar" style="height:' + (yearMap[y]/maxCount*100).toFixed(1) + '%" title="' + y + ': ' + yearMap[y] + ' papers"></div>' +
+      '<div class="year-label">' + y + '</div>' +
+    '</div>'
+  ).join('');
+}
+
+function renderVenues(citing) {
+  const venueMap = {};
+  citing.forEach(n => { if (n.venue) venueMap[n.venue] = (venueMap[n.venue] || 0) + 1; });
+  const sorted = Object.entries(venueMap).sort((a,b) => b[1] - a[1]).slice(0, 15);
+  const max = sorted[0] ? sorted[0][1] : 1;
+  document.getElementById('venueList').innerHTML = sorted.map(function(item) {
+    var v = item[0], c = item[1];
+    return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
+      '<div style="width:40px;text-align:right;font-family:var(--serif);font-weight:600;color:var(--accent)">' + c + '</div>' +
+      '<div style="flex:1">' +
+        '<div style="font-size:0.88rem">' + escapeHtml(v) + '</div>' +
+        '<div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px">' +
+          '<div style="height:100%;width:' + (c/max*100).toFixed(1) + '%;background:var(--accent);border-radius:2px"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function exportCSV() {
+  const rows = getFiltered();
+  const header = 'title,authors,year,date,citations,venue,related_papers,doi,url,type\n';
+  const csv = header + rows.map(n => {
+    const related = getRelatedNodes(n).map(x => x.title).filter(Boolean).slice(0,5).join(' | ');
+    return [n.title, n.authors, n.year, n.date, n.cited_by_count, n.venue, related, n.doi, n.url, n.type]
+      .map(v => '"' + String(v || '').replace(/"/g, '""') + '"')
+      .join(',');
+  }).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'citations_export.csv';
+  a.click();
+}
+</script>
+</body>
+</html>

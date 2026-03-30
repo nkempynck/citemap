@@ -5,7 +5,4 @@ venv/
 .DS_Store
 memory/
 citations.csv
-citations_summary.txt
-citation_network.html
-scrape_citations.py
 agent.log
