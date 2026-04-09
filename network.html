@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Citation Network</title>
+<meta name="description" content="Interactive citation network — explore how papers cite and influence each other.">
+<meta property="og:title" content="Citation Network">
+<meta property="og:description" content="Interactive citation network — explore how papers cite and influence each other.">
+<meta property="og:type" content="website">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 <style>
@@ -50,14 +54,25 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
 .config-summary::-webkit-details-marker { display: none; }
 .config-summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
 details[open] .config-summary::before { transform: rotate(90deg); }
+.intro { font-size: 0.82rem; color: var(--text2); line-height: 1.55; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--bg3); }
+.mobile-wall { display: none; }
+@media (max-width: 720px) {
+  .mobile-wall { display: flex; position: fixed; inset: 0; background: var(--bg); z-index: 999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px 32px; gap: 14px; }
+  .layout { display: none; }
+}
 </style>
 </head>
 <body>
+<div class="mobile-wall">
+  <p style="font-family:var(--serif);font-size:1.3rem;font-weight:600">Best viewed on desktop</p>
+  <p style="max-width:280px;color:var(--text2);line-height:1.55">This interactive citation network is designed for larger screens. Open it on a laptop or desktop for the full experience.</p>
+</div>
 <div class="loading" id="loading">Loading citation network...</div>
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
     <h1 id="title">Citation network</h1>
     <p class="sub" id="subtitle"></p>
+    <p class="intro">An interactive map of academic influence. Each node is a paper — size reflects citation count, color reflects how connected it is in the graph. Green nodes are the author's own works. Click any node to see details.</p>
 
     <details id="configPanel">
     <summary class="config-summary">Options</summary>
@@ -313,6 +328,8 @@ function initGraph() {
   document.getElementById('app').style.display = 'grid';
   document.getElementById('title').textContent = DATA.author.name;
   document.getElementById('subtitle').textContent = DATA.nodes.length + ' papers, ' + DATA.edges.length + ' citation links';
+  document.title = DATA.author.name + ' — Citation Network';
+  document.querySelector('meta[property="og:title"]').setAttribute('content', DATA.author.name + ' — Citation Network');
 
   const years = DATA.nodes.map(n => n.year).filter(Boolean);
   const minY = Math.min(...years), maxY = Math.max(...years);
