@@ -8,23 +8,23 @@ The JSON is the single source of truth — the portal and network graph
 (separate HTML files) both read from it.
 
 Usage:
-    python run.py              # normal: script first, agent fallback
-    python run.py --agent      # force agent mode
-    python run.py --script     # script only, no agent fallback
+    python run.py                              # interactive: prompts for name
+    python run.py "Niklas Kempynck"            # search by name, pick from results
+    python run.py --name "..." --id "..."      # skip lookup, use IDs directly
+    python run.py --agent                      # force agent mode
+    python run.py --script                     # script only, no agent fallback
 """
 
 import argparse
+import json
+import sys
+import urllib.parse
+import urllib.request
 
 from selfhealing_agent import Agent
 
-# ── Configure your author here ──────────────────────────────────────────────
-AUTHOR_NAME = "Niklas Kempynck"
-OPENALEX_AUTHOR_ID = "A5093400185"  # Find at https://openalex.org/authors
-# ─────────────────────────────────────────────────────────────────────────────
-
 # How many levels deep to go
 # Level 0: your papers
-# Level 1: papers that cite yours + papers yours reference
 # Level 1: papers that cite yours + papers yours reference
 DEPTH = 1
 
@@ -32,9 +32,110 @@ DEPTH = 1
 # Set DEPTH = 2 and adjust this to enable deeper crawling (can be very slow)
 MIN_CITATIONS_FOR_EXPANSION = 20
 
-agent = Agent(
-    name="citation-tracker",
-    instructions=f"""\
+
+def search_openalex_author(name):
+    """Search OpenAlex for an author by name. Returns up to 5 candidates."""
+    encoded = urllib.parse.quote(name)
+    url = (
+        f"https://api.openalex.org/authors"
+        f"?search={encoded}&per_page=5&mailto=scholar-citations@tool.com"
+    )
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        results = data.get("results", [])
+        return [
+            {
+                "id": r["id"].split("/")[-1],
+                "name": r.get("display_name", ""),
+                "institution": (
+                    (r.get("last_known_institutions") or [{}])[0].get("display_name")
+                    or "Unknown institution"
+                ),
+                "works_count": r.get("works_count", 0),
+                "cited_by_count": r.get("cited_by_count", 0),
+            }
+            for r in results
+        ]
+    except Exception as e:
+        print(f"Error searching OpenAlex: {e}")
+        return []
+
+
+def resolve_author(name=None, author_id=None):
+    """
+    Resolve the author name + OpenAlex ID to use for the run.
+    - Both provided  → use them directly.
+    - Name only      → search OpenAlex, let user pick.
+    - Neither        → prompt for name, then search.
+    """
+    if name and author_id:
+        return name, author_id
+
+    if not name:
+        try:
+            name = input("Author name: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+        if not name:
+            print("No name provided. Exiting.")
+            sys.exit(1)
+
+    print(f"\nSearching OpenAlex for '{name}'...")
+    candidates = search_openalex_author(name)
+
+    if not candidates:
+        print("No results found. Try a different spelling or pass --id manually.")
+        sys.exit(1)
+
+    if len(candidates) == 1:
+        c = candidates[0]
+        print(
+            f"Found: {c['name']}  ·  {c['institution']}"
+            f"  ·  {c['works_count']} works  ·  {c['cited_by_count']} citations"
+        )
+        return c["name"], c["id"]
+
+    print(f"Found {len(candidates)} results:\n")
+    for i, c in enumerate(candidates, 1):
+        print(f"  [{i}] {c['name']}")
+        print(f"      {c['institution']}  ·  {c['works_count']} works  ·  {c['cited_by_count']} citations")
+        print(f"      ID: {c['id']}")
+        print()
+
+    while True:
+        try:
+            choice = input(f"Pick an author [1–{len(candidates)}] or q to quit: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+        if choice.lower() == "q":
+            sys.exit(0)
+        if choice.isdigit() and 1 <= int(choice) <= len(candidates):
+            c = candidates[int(choice) - 1]
+            return c["name"], c["id"]
+        print("Invalid choice, try again.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Citation Tracker (OpenAlex)")
+    parser.add_argument("name", nargs="?", help="Author name to search for")
+    parser.add_argument("--name", dest="name_flag", metavar="NAME",
+                        help="Author name (alternative to positional arg)")
+    parser.add_argument("--id", dest="author_id", metavar="OPENALEX_ID",
+                        help="OpenAlex author ID, e.g. A5093400185")
+    parser.add_argument("--agent", action="store_true", help="Force agent mode")
+    parser.add_argument("--script", action="store_true", help="Script only, no agent fallback")
+    args = parser.parse_args()
+
+    raw_name = args.name or args.name_flag
+    AUTHOR_NAME, OPENALEX_AUTHOR_ID = resolve_author(raw_name, args.author_id)
+    print(f"\nUsing: {AUTHOR_NAME}  ({OPENALEX_AUTHOR_ID})\n")
+
+    agent = Agent(
+        name="citation-tracker",
+        instructions=f"""\
 Fetch recursive citation network data for an author from the OpenAlex API
 and save it as a structured JSON file.
 
@@ -160,15 +261,13 @@ happening because this can take minutes. Specifically:
 
 Example output the user should see:
   "Fetching author profile..."
-  "Author: Niklas Kempynck, KU Leuven, 230 citations"
-  "Fetching 18 author works..."
-  "  1. Cell-type-directed design of synthetic enhancers (144 citations)"
-  "  2. Enhancer-driven cell type comparison... (33 citations)"
-  "Fetching citing papers for 18 works..."
-  "  [1/18] Cell-type-directed design... → 144 citers"
-  "  [2/18] Enhancer-driven cell type... → 33 citers"
-  "Fetching references for 18 works..."
-  "  [1/18] Cell-type-directed design... → 45 references"
+  "Author: {AUTHOR_NAME}, [institution], [citations] citations"
+  "Fetching author works..."
+  "  1. Some Paper Title (144 citations)"
+  "Fetching citing papers for N works..."
+  "  [1/N] Some Paper Title → 144 citers"
+  "Fetching references for N works..."
+  "  [1/N] Some Paper Title → 45 references"
   "Total: 450 nodes, 520 edges. Took 2m 15s."
 
 === IMPORTANT ===
@@ -184,16 +283,10 @@ Example output the user should see:
 - If any API call fails, print the error and continue with the next paper.
   Do not crash the whole script because one request failed.
 """,
-    output_file="citation_data.json",
-    script_file="scrape_citations.py",
-    max_tokens=8192,
-)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Citation Tracker (OpenAlex)")
-    parser.add_argument("--agent", action="store_true", help="Force agent mode")
-    parser.add_argument("--script", action="store_true", help="Script only, no agent fallback")
-    args = parser.parse_args()
+        output_file="citation_data.json",
+        script_file="scrape_citations.py",
+        max_tokens=8192,
+    )
 
     if args.agent:
         agent.run_agent_only()

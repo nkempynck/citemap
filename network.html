@@ -44,6 +44,12 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
 .graph-btn { padding: 6px 12px; border: 1px solid var(--bg3); border-radius: 6px; background: white; cursor: pointer; font-family: var(--sans); font-size: 0.82rem; }
 .graph-btn:hover { background: var(--bg2); }
 .graph-stats { position: absolute; bottom: 16px; left: 16px; font-size: 0.78rem; color: var(--text3); background: rgba(250,250,247,0.92); padding: 6px 12px; border-radius: 6px; }
+.legend-gradient { height: 10px; border-radius: 4px; margin-bottom: 4px; background: linear-gradient(to right, rgb(135,206,235), rgb(214,48,30)); }
+.legend-grad-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text3); }
+.config-summary { cursor: pointer; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; padding: 6px 0; margin-bottom: 6px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
+.config-summary::-webkit-details-marker { display: none; }
+.config-summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+details[open] .config-summary::before { transform: rotate(90deg); }
 </style>
 </head>
 <body>
@@ -52,6 +58,9 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
   <div class="sidebar">
     <h1 id="title">Citation network</h1>
     <p class="sub" id="subtitle"></p>
+
+    <details id="configPanel">
+    <summary class="config-summary">Options</summary>
 
     <div class="control-group">
       <label>Filter by type</label>
@@ -91,6 +100,14 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
     </div>
 
     <div class="control-group">
+      <label>Color mode</label>
+      <select id="colorMode">
+        <option value="type">By paper type</option>
+        <option value="heatmap" selected>By connections (heatmap)</option>
+      </select>
+    </div>
+
+    <div class="control-group">
       <label>Node sizing</label>
       <select id="sizeMode">
         <option value="asinh" selected>By citation count (asinh)</option>
@@ -105,8 +122,8 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
     <div class="control-group">
       <label>Base label threshold</label>
       <div class="range-row">
-        <input type="range" id="labelThreshold" min="0" max="200" value="25" step="1">
-        <span class="range-val" id="labelThresholdVal">25</span>
+        <input type="range" id="labelThreshold" min="0" max="200" value="50" step="1">
+        <span class="range-val" id="labelThresholdVal">50</span>
       </div>
       <div class="control-help">Only papers above this citation count are labeled at the default zoom. Zooming in reveals more labels.</div>
     </div>
@@ -139,11 +156,13 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
     <div class="control-group">
       <label>Node spacing</label>
       <div class="range-row">
-        <input type="range" id="avoidOverlap" min="0" max="1" value="0.65" step="0.05">
-        <span class="range-val" id="avoidOverlapVal">0.65</span>
+        <input type="range" id="avoidOverlap" min="0" max="1" value="1" step="0.05">
+        <span class="range-val" id="avoidOverlapVal">1</span>
       </div>
       <div class="control-help">Pushes nodes apart more strongly to reduce overlap.</div>
     </div>
+
+    </details>
 
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
@@ -268,6 +287,17 @@ function nodeSize(cited, scale, mode) {
   return Math.max(4, sizeByMode[mode] || sizeByMode.asinh);
 }
 
+function heatmapColor(value, max) {
+  const t = max > 0 ? Math.min(1, Math.asinh((value || 0) / 4) / Math.asinh(max / 4)) : 0;
+  const r = Math.round(135 + (214 - 135) * t);
+  const g = Math.round(206 + (48  - 206) * t);
+  const b = Math.round(235 + (30  - 235) * t);
+  return {
+    bg: `rgb(${r},${g},${b})`,
+    border: `rgb(${Math.round(r * 0.68)},${Math.round(g * 0.68)},${Math.round(b * 0.68)})`
+  };
+}
+
 function shortTitle(title, maxLen) {
   if (!title) return '';
   return title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
@@ -295,7 +325,7 @@ function initGraph() {
 
   buildNetwork();
 
-  ['typeFilter','sizeMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
+  ['typeFilter','sizeMode','colorMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
   ['yearMin','yearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
     const el = document.getElementById(id);
     const valEl = document.getElementById(id + 'Val');
@@ -317,29 +347,89 @@ function buildNetwork() {
   const yearMax = parseInt(document.getElementById('yearMax').value);
   const citeMin = sliderToCitation(document.getElementById('citeMin').value);
   const sizeMode = document.getElementById('sizeMode').value || 'asinh';
+  const colorMode = document.getElementById('colorMode').value;
   const sizeScale = parseFloat(document.getElementById('sizeScale').value);
   const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
   const avoidOverlap = parseFloat(document.getElementById('avoidOverlap').value);
 
+  // Update legend to match active color mode
+  const legendEl = document.querySelector('.legend');
+  if (colorMode === 'heatmap') {
+    legendEl.innerHTML = `
+      <div style="margin-bottom:6px;font-size:0.85rem;font-weight:500">Citations heatmap</div>
+      <div class="legend-gradient"></div>
+      <div class="legend-grad-row"><span>Few</span><span>Many</span></div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px;font-size:0.85rem">
+        <div style="width:14px;height:14px;border-radius:50%;background:#27ae60;border:2px solid #1a7a42;flex-shrink:0"></div>
+        Author's works (separate scale)
+      </div>
+      <div style="margin-top:6px;font-size:0.78rem;color:var(--text3)">Other nodes colored by connection count. Author papers fixed green — their degree is structurally inflated by the data.</div>`;
+  } else {
+    legendEl.innerHTML = `
+      <div class="legend-item"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#185fa5"></div> References</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
+      <div style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Labels always show for the author's papers. Other labels appear progressively as you zoom in.</div>`;
+  }
+
+  // Pass 1: determine which nodes are visible
   const visibleIds = new Set();
-  const nodes = [];
   DATA.nodes.forEach(n => {
     if (typeFilter === 'no-ref' && (n.type === 'reference' || n.type === 'level2')) return;
     if (typeFilter === 'author-only' && n.type !== 'author') return;
     if (n.year && (n.year < yearMin || n.year > yearMax)) return;
     if ((n.cited_by_count || 0) < citeMin && n.type !== 'author') return;
     visibleIds.add(n.id);
+  });
+
+  // Pass 2: compute degree (edge count) per visible node
+  const degreeMap = {};
+  DATA.edges.forEach(e => {
+    if (visibleIds.has(e.from) && visibleIds.has(e.to)) {
+      degreeMap[e.from] = (degreeMap[e.from] || 0) + 1;
+      degreeMap[e.to]   = (degreeMap[e.to]   || 0) + 1;
+    }
+  });
+  // Author nodes have structurally inflated degree; normalize heatmap against non-author max only
+  const nonAuthorDegrees = DATA.nodes
+    .filter(n => n.type !== 'author' && visibleIds.has(n.id))
+    .map(n => degreeMap[n.id] || 0);
+  const maxDegree = Math.max(...nonAuthorDegrees.concat([1]));
+
+  // Pass 3: build node objects
+  const nodes = [];
+  DATA.nodes.forEach(n => {
+    if (!visibleIds.has(n.id)) return;
     const sz = nodeSize(n.cited_by_count || 0, sizeScale, sizeMode);
+    const isAuthor = n.type === 'author';
+    const degree = degreeMap[n.id] || 0;
+    let bgColor, borderColor, fontColor;
+    if (colorMode === 'heatmap') {
+      if (isAuthor) {
+        bgColor = '#27ae60';
+        borderColor = '#1a7a42';
+      } else {
+        const hm = heatmapColor(degree, maxDegree);
+        bgColor = hm.bg;
+        borderColor = hm.border;
+      }
+      fontColor = '#1c1c1a';
+    } else {
+      bgColor = COLORS[n.type];
+      borderColor = BORDERS[n.type];
+      fontColor = FONT_COLORS[n.type];
+    }
     nodes.push({
       id: n.id,
       label: '',
       hiddenLabel: shortTitle(n.title, 42),
-      title: (n.title || '') + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0),
+      title: (n.title || '') + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0) + '\nConnections: ' + degree,
       size: sz,
-      color: { background: COLORS[n.type], border: BORDERS[n.type] },
-      borderWidth: n.type === 'author' ? 3 : 1,
-      font: { color: FONT_COLORS[n.type], size: 11, face: 'Outfit', strokeWidth: 3, strokeColor: '#fafaf7' },
-      _data: n,
+      color: { background: bgColor, border: borderColor },
+      borderWidth: isAuthor ? 3 : 1,
+      font: { color: fontColor, size: 11, face: 'Outfit', strokeWidth: 3, strokeColor: '#fafaf7' },
+      _data: { ...n, degree },
     });
   });
 
@@ -365,9 +455,10 @@ function buildNetwork() {
   const options = {
     nodes: { shape: 'dot' },
     edges: { smooth: { type: 'continuous', roundness: 0.15 } },
+    layout: { improvedLayout: true },
     physics: {
       enabled: physicsOn,
-      stabilization: { iterations: 250, fit: true },
+      stabilization: { iterations: 400, fit: true },
       barnesHut: {
         gravitationalConstant: -7000,
         centralGravity: 0.08,
@@ -406,6 +497,17 @@ function buildNetwork() {
       applyDynamicLabels();
     }
   }, 50);
+
+  network.on('hoverNode', function(params) {
+    const connectedEdges = network.getConnectedEdges(params.node);
+    const updates = connectedEdges.map(edgeId => ({ id: edgeId, width: 3 }));
+    allEdges.update(updates);
+  });
+
+  network.on('blurNode', function() {
+    const updates = allEdges.get().map(e => ({ id: e.id, width: 0.5 }));
+    allEdges.update(updates);
+  });
 }
 
 function applyDynamicLabels() {
@@ -413,6 +515,7 @@ function applyDynamicLabels() {
   const thresholdBase = parseFloat(document.getElementById('labelThreshold').value);
   const sensitivity = parseFloat(document.getElementById('zoomLabelSensitivity').value);
   const fontBase = parseFloat(document.getElementById('fontBase').value);
+  const colorMode = document.getElementById('colorMode').value;
   const scale = Math.max(currentScale || 1, 0.05);
   const revealDivisor = Math.max(0.15, Math.pow(scale, sensitivity));
   const threshold = thresholdBase / revealDivisor;
@@ -421,18 +524,23 @@ function applyDynamicLabels() {
   const updates = [];
   allNodes.forEach(node => {
     const cited = node._data.cited_by_count || 0;
-    const showLabel = node._data.type === 'author' || cited >= threshold;
-    updates.push({
+    const isAuthor = node._data.type === 'author';
+    const isHighlyCited = !isAuthor && cited >= thresholdBase;
+    const showLabel = isAuthor || cited >= threshold;
+    const nodeFontSize = isAuthor ? fontSize + 5 : isHighlyCited ? fontSize + 3 : fontSize;
+    const fontColor = colorMode === 'heatmap' ? '#1c1c1a' : FONT_COLORS[node._data.type];
+    const update = {
       id: node.id,
       label: showLabel ? shortTitle(node._data.title, scale > 1.6 ? 70 : 42) : '',
       font: {
-        color: FONT_COLORS[node._data.type],
-        size: node._data.type === 'author' ? fontSize + 1 : fontSize,
+        color: fontColor,
+        size: nodeFontSize,
         face: 'Outfit',
         strokeWidth: 3,
         strokeColor: '#fafaf7'
       }
-    });
+    };
+    updates.push(update);
   });
   allNodes.update(updates);
 }
