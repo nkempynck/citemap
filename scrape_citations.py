@@ -19,21 +19,31 @@ Recursion depth: 1
 Min citations for level 2 expansion: 20
 """
 
-import requests
+import argparse
+import csv
 import json
 import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, List, Set, Tuple, Optional
-import csv
+from typing import Dict, List, Optional, Tuple
+import requests
+
+# Max concurrent API requests. OpenAlex polite pool handles this comfortably.
+MAX_WORKERS = 5
 
 def fetch_with_retry(url: str, max_retries: int = 3) -> Optional[Dict]:
     """Fetch URL with retry logic and polite delay"""
     for attempt in range(max_retries):
         try:
-            time.sleep(0.5)  # Be polite to the API
+            time.sleep(0.1)  # Polite delay (was 0.5s — polite pool handles 10+ req/s)
             response = requests.get(url, timeout=30)
             if response.status_code == 200:
                 return response.json()
+            elif response.status_code == 429:
+                wait = 2 ** (attempt + 1)
+                print(f"  Rate limited (429). Waiting {wait}s...")
+                time.sleep(wait)
             else:
                 print(f"  HTTP {response.status_code} for {url}")
                 if attempt < max_retries - 1:
@@ -50,7 +60,7 @@ def format_authors(authors_list: List[Dict]) -> str:
     """Format authors as 'First Author et al.' or just the name if single author"""
     if not authors_list:
         return "Unknown"
-    
+
     first_author = authors_list[0].get('author', {}).get('display_name', 'Unknown')
     if len(authors_list) == 1:
         return first_author
@@ -66,13 +76,13 @@ def extract_work_id(openalex_url: str) -> str:
 def create_work_node(work: Dict, node_type: str) -> Dict:
     """Create a standardized work node from OpenAlex work data"""
     work_id = extract_work_id(work.get('id', ''))
-    
+
     # Handle venue safely
     venue = None
     primary_location = work.get('primary_location')
     if primary_location and primary_location.get('source'):
         venue = primary_location['source'].get('display_name')
-    
+
     return {
         'id': work_id,
         'title': work.get('title', 'Unknown Title'),
@@ -86,12 +96,81 @@ def create_work_node(work: Dict, node_type: str) -> Dict:
         'type': node_type
     }
 
+def _fetch_citing_for_work(args: Tuple) -> Tuple[str, List[Dict], set]:
+    """
+    Fetch all citing papers for a single author work.
+    Returns (work_id, list_of_citing_nodes, set_of_edges).
+    Runs in a worker thread — no shared state written here.
+    """
+    work, EMAIL = args
+    work_id = extract_work_id(work.get('id', ''))
+    work_title = work.get('title', 'Unknown')[:50]
+    cited_by_count = work.get('cited_by_count', 0)
+
+    # No API call needed for uncited works
+    if cited_by_count == 0:
+        return work_id, [], set()
+
+    citing_papers = []
+    cursor = "*"
+
+    while cursor:
+        citing_url = (
+            f"https://api.openalex.org/works"
+            f"?filter=cites:{work_id}&sort=cited_by_count:desc&per_page=200&cursor={cursor}&mailto={EMAIL}"
+        )
+        citing_data = fetch_with_retry(citing_url)
+
+        if not citing_data:
+            print(f"    Failed to fetch citing papers for {work_title}")
+            break
+
+        batch = citing_data.get('results', [])
+        citing_papers.extend(batch)
+        cursor = citing_data.get('meta', {}).get('next_cursor')
+
+        if len(citing_papers) >= 2000:
+            print(
+                f"    Warning: hit 2000-paper cap for '{work_title}' "
+                f"(actual cited_by_count: {cited_by_count}). Kept top {len(citing_papers)} by citation count."
+            )
+            break
+        if not cursor:
+            break
+
+    nodes_out = [create_work_node(cw, 'citing') for cw in citing_papers]
+    edges_out = {(n['id'], work_id) for n in nodes_out}
+    return work_id, nodes_out, edges_out
+
+
+def _fetch_reference_batch(args: Tuple) -> List[Dict]:
+    """
+    Fetch metadata for a batch of reference IDs.
+    Returns list of work nodes. Runs in a worker thread.
+    """
+    batch_ids, EMAIL = args
+    id_filter = '|'.join(batch_ids)
+    refs_url = (
+        f"https://api.openalex.org/works"
+        f"?filter=openalex:{id_filter}&per_page=200&mailto={EMAIL}"
+    )
+    refs_data = fetch_with_retry(refs_url)
+    if refs_data:
+        return [create_work_node(rw, 'reference') for rw in refs_data.get('results', [])]
+    return []
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Fetch citation network from OpenAlex")
+    parser.add_argument("--id",   required=True, help="OpenAlex author ID (e.g. A5093400185)")
+    parser.add_argument("--name", default="",    help="Author display name (for logging)")
+    args = parser.parse_args()
+
     print("Starting citation network fetch...")
     start_time = time.time()
 
     # Configuration
-    AUTHOR_ID = "A5093400185"
+    AUTHOR_ID = args.id
     DEPTH = 1
     MIN_CITATIONS_FOR_EXPANSION = 20
 
@@ -111,7 +190,7 @@ def main():
     if not author_data:
         print("Failed to fetch author data")
         return
-        
+
     author_info = {
         'name': author_data.get('display_name', 'Unknown'),
         'openalex_id': AUTHOR_ID,
@@ -131,17 +210,17 @@ def main():
     while cursor:
         works_url = f"https://api.openalex.org/works?filter=author.id:{AUTHOR_ID}&sort=cited_by_count:desc&per_page=200&cursor={cursor}&mailto={EMAIL}"
         works_data = fetch_with_retry(works_url)
-        
+
         if not works_data:
             print("Failed to fetch works data")
             break
-            
+
         batch_works = works_data.get('results', [])
         author_works.extend(batch_works)
-        
+
         cursor = works_data.get('meta', {}).get('next_cursor')
         print(f"  Fetched {len(batch_works)} works (total: {len(author_works)})")
-        
+
         if not cursor:
             break
 
@@ -155,58 +234,40 @@ def main():
         title_display = title[:80] + ("..." if len(title) > 80 else "")
         print(f"  {i}. {title_display} ({node['cited_by_count']} citations)")
 
-    # Step 3: Fetch citing papers for each author work
-    print(f"\nFetching citing papers for {len(author_works)} works...")
+    # Step 3: Fetch citing papers for each author work — parallel
+    cited_works = [w for w in author_works if w.get('cited_by_count', 0) > 0]
+    skipped = len(author_works) - len(cited_works)
+    print(
+        f"\nFetching citing papers for {len(cited_works)} works "
+        f"({skipped} skipped — 0 citations), {MAX_WORKERS} workers in parallel..."
+    )
 
     total_citing_papers = 0
 
-    for i, work in enumerate(author_works, 1):
-        work_id = extract_work_id(work.get('id', ''))
-        work_title = work.get('title', 'Unknown')[:50]
-        
-        print(f"  [{i}/{len(author_works)}] Fetching citers for: {work_title}...")
-        
-        citing_papers = []
-        cursor = "*"
-        
-        while cursor:
-            citing_url = f"https://api.openalex.org/works?filter=cites:{work_id}&per_page=200&cursor={cursor}&mailto={EMAIL}"
-            citing_data = fetch_with_retry(citing_url)
-            
-            if not citing_data:
-                print(f"    Failed to fetch citing papers for {work_title}")
-                break
-                
-            batch_citing = citing_data.get('results', [])
-            citing_papers.extend(batch_citing)
-            
-            cursor = citing_data.get('meta', {}).get('next_cursor')
-            
-            if len(citing_papers) >= 500:
-                print(f"    Warning: hit 500-paper cap for '{work_title}' (actual cited_by_count: {work.get('cited_by_count', '?')}). Edges may be incomplete.")
-                break
-            if not cursor:
-                break
-        
-        print(f"    Found {len(citing_papers)} citing papers")
-        total_citing_papers += len(citing_papers)
-        
-        # Add citing papers as nodes and edges
-        for citing_work in citing_papers:
-            citing_node = create_work_node(citing_work, 'citing')
-            citing_id = citing_node['id']
-            
-            # Add node (or update type if it exists with lower priority)
-            if citing_id not in nodes:
-                nodes[citing_id] = citing_node
-            else:
-                # Keep the "closest" type priority: author > citing/reference > level2
-                existing_type = nodes[citing_id]['type']
-                if existing_type not in ['author']:
-                    nodes[citing_id]['type'] = 'citing'
-            
-            # Add edge: citing paper -> author work
-            edges.add((citing_id, work_id))
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_work = {
+            executor.submit(_fetch_citing_for_work, (work, EMAIL)): work
+            for work in cited_works
+        }
+
+        for i, future in enumerate(as_completed(future_to_work), 1):
+            work = future_to_work[future]
+            work_title = work.get('title', 'Unknown')[:50]
+            try:
+                work_id, citing_nodes, citing_edges = future.result()
+                total_citing_papers += len(citing_nodes)
+                print(f"  [{i}/{len(cited_works)}] {work_title}: {len(citing_nodes)} citers")
+
+                for citing_node in citing_nodes:
+                    citing_id = citing_node['id']
+                    if citing_id not in nodes:
+                        nodes[citing_id] = citing_node
+                    elif nodes[citing_id]['type'] not in ['author']:
+                        nodes[citing_id]['type'] = 'citing'
+
+                edges.update(citing_edges)
+            except Exception as e:
+                print(f"  Error processing {work_title}: {e}")
 
     print(f"Completed citing papers fetch. Total citing papers: {total_citing_papers}")
     print(f"Current nodes: {len(nodes)}, edges: {len(edges)}")
@@ -220,43 +281,44 @@ def main():
     for i, work in enumerate(author_works, 1):
         work_id = extract_work_id(work.get('id', ''))
         work_title = work.get('title', 'Unknown')[:50]
-        
+
         referenced_works = work.get('referenced_works', [])
         ref_ids = [extract_work_id(ref_url) for ref_url in referenced_works if ref_url]
-        
+
         work_to_refs[work_id] = ref_ids
         all_reference_ids.update(ref_ids)
-        
+
         print(f"  [{i}/{len(author_works)}] {work_title}... → {len(ref_ids)} references")
 
-    # Bulk fetch reference metadata
-    print(f"Bulk fetching metadata for {len(all_reference_ids)} unique references...")
-
+    # Bulk fetch reference metadata — parallel
     ref_id_list = list(all_reference_ids)
     batch_size = 50  # OpenAlex limit for OR queries
+    batches = [ref_id_list[i:i+batch_size] for i in range(0, len(ref_id_list), batch_size)]
 
-    for i in range(0, len(ref_id_list), batch_size):
-        batch_ids = ref_id_list[i:i+batch_size]
-        id_filter = '|'.join(batch_ids)
-        
-        refs_url = f"https://api.openalex.org/works?filter=openalex:{id_filter}&per_page=200&mailto={EMAIL}"
-        refs_data = fetch_with_retry(refs_url)
-        
-        if refs_data:
-            for ref_work in refs_data.get('results', []):
-                ref_node = create_work_node(ref_work, 'reference')
-                ref_id = ref_node['id']
-                
-                # Add node (or update type if it exists with lower priority)
-                if ref_id not in nodes:
-                    nodes[ref_id] = ref_node
-                else:
-                    # Keep the "closest" type priority: author > citing/reference > level2
-                    existing_type = nodes[ref_id]['type']
-                    if existing_type not in ['author', 'citing']:
+    print(
+        f"Bulk fetching metadata for {len(all_reference_ids)} unique references "
+        f"in {len(batches)} batches, {MAX_WORKERS} workers in parallel..."
+    )
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_batch = {
+            executor.submit(_fetch_reference_batch, (batch, EMAIL)): idx
+            for idx, batch in enumerate(batches)
+        }
+
+        for future in as_completed(future_to_batch):
+            idx = future_to_batch[future]
+            try:
+                ref_nodes = future.result()
+                for ref_node in ref_nodes:
+                    ref_id = ref_node['id']
+                    if ref_id not in nodes:
+                        nodes[ref_id] = ref_node
+                    elif nodes[ref_id]['type'] not in ['author', 'citing']:
                         nodes[ref_id]['type'] = 'reference'
-        
-        print(f"    Processed batch {i//batch_size + 1}/{(len(ref_id_list) + batch_size - 1)//batch_size}")
+                print(f"    Processed batch {idx + 1}/{len(batches)}")
+            except Exception as e:
+                print(f"    Error in reference batch {idx + 1}: {e}")
 
     # Add reference edges
     for author_work_id, ref_ids in work_to_refs.items():
@@ -291,19 +353,18 @@ def main():
     print(f"\nSaved citation_data.json ({len(nodes_list)} nodes, {len(edges_list)} edges)")
 
     # Step 8: Save CSV file
+    # Precompute cited_papers lookup in O(nodes + edges) instead of O(nodes * edges)
+    author_titles = {n['id']: n['title'] for n in nodes_list if n['type'] == 'author'}
+    cited_by_node: Dict[str, List[str]] = defaultdict(list)
+    for edge in edges_list:
+        if edge['to'] in author_titles:
+            cited_by_node[edge['from']].append(author_titles[edge['to']])
+
     with open('citations.csv', 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['title', 'authors', 'year', 'date', 'citation_count', 'venue', 'doi', 'url', 'type', 'cited_papers'])
-        
+
         for node in nodes_list:
-            # Find which author papers this node cites
-            cited_papers = []
-            for edge in edges_list:
-                if edge['from'] == node['id']:  # This node cites something
-                    target_node = nodes.get(edge['to'])
-                    if target_node and target_node['type'] == 'author':
-                        cited_papers.append(target_node['title'])
-            
             writer.writerow([
                 node['title'],
                 node['authors'],
@@ -314,7 +375,7 @@ def main():
                 node['doi'],
                 node['url'],
                 node['type'],
-                '; '.join(cited_papers)
+                '; '.join(cited_by_node.get(node['id'], []))
             ])
 
     print("Saved citations.csv")

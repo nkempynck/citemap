@@ -17,7 +17,10 @@ Usage:
 
 import argparse
 import json
+import os
+import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -40,26 +43,32 @@ def search_openalex_author(name):
         f"https://api.openalex.org/authors"
         f"?search={encoded}&per_page=5&mailto=scholar-citations@tool.com"
     )
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            data = json.loads(resp.read())
-        results = data.get("results", [])
-        return [
-            {
-                "id": r["id"].split("/")[-1],
-                "name": r.get("display_name", ""),
-                "institution": (
-                    (r.get("last_known_institutions") or [{}])[0].get("display_name")
-                    or "Unknown institution"
-                ),
-                "works_count": r.get("works_count", 0),
-                "cited_by_count": r.get("cited_by_count", 0),
-            }
-            for r in results
-        ]
-    except Exception as e:
-        print(f"Error searching OpenAlex: {e}")
-        return []
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                data = json.loads(resp.read())
+            break
+        except Exception as e:
+            if attempt < 2:
+                print(f"  Retrying ({attempt + 1}/3)...")
+                time.sleep(2 ** attempt)
+            else:
+                print(f"Error searching OpenAlex: {e}")
+                return []
+    results = data.get("results", [])
+    return [
+        {
+            "id": r["id"].split("/")[-1],
+            "name": r.get("display_name", ""),
+            "institution": (
+                (r.get("last_known_institutions") or [{}])[0].get("display_name")
+                or "Unknown institution"
+            ),
+            "works_count": r.get("works_count", 0),
+            "cited_by_count": r.get("cited_by_count", 0),
+        }
+        for r in results
+    ]
 
 
 def resolve_author(name=None, author_id=None):
@@ -282,15 +291,30 @@ Example output the user should see:
   store just "W1234567890" as the node id
 - If any API call fails, print the error and continue with the next paper.
   Do not crash the whole script because one request failed.
+- The script MUST accept two command-line arguments using argparse:
+    --id    (required) OpenAlex author ID, e.g. A5093400185
+    --name  (optional) author display name, used only for logging
+  Use args.id as the author ID throughout. Do NOT hardcode the author ID.
+  Example: parser.add_argument("--id", required=True); parser.add_argument("--name", default="")
 """,
         output_file="citation_data.json",
         script_file="scrape_citations.py",
         max_tokens=8192,
     )
 
+    script_args = [sys.executable, 'scrape_citations.py', '--id', OPENALEX_AUTHOR_ID, '--name', AUTHOR_NAME]
+
     if args.agent:
         agent.run_agent_only()
     elif args.script:
-        agent.run_script_only()
+        result = subprocess.run(script_args)
+        if result.returncode != 0:
+            sys.exit(1)
     else:
-        agent.run()
+        if os.path.exists('scrape_citations.py'):
+            result = subprocess.run(script_args)
+            if result.returncode != 0:
+                print("\nScript failed — falling back to agent...")
+                agent.run_agent_only()
+        else:
+            agent.run_agent_only()
