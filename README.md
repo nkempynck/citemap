@@ -42,6 +42,20 @@ To find an OpenAlex author ID manually, search at [openalex.org/authors](https:/
 - **`network.html`** — interactive force-directed graph, open in browser
 - **`portal.html`** — paper portal view
 
+## Publish to GitHub Pages
+
+After running `run.py`, copy the web files into `docs/` with:
+
+```bash
+bash deploy.sh
+```
+
+Then commit and push `docs/` yourself whenever you want to update the live version.
+
+Enable GitHub Pages once in your repo: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / `docs`**
+
+Your network will be live at `https://<username>.github.io/<repo>/network.html`.
+
 ## How it works
 
 First run: the AI agent calls the OpenAlex API, writes a standalone script (`scrape_citations.py`), and generates all outputs.
