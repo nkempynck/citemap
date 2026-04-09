@@ -94,6 +94,9 @@ def main():
     AUTHOR_ID = "A5093400185"
     DEPTH = 1
     MIN_CITATIONS_FOR_EXPANSION = 20
+
+    if DEPTH != 1:
+        print(f"Warning: DEPTH={DEPTH} is set but this script only implements depth 1. Level 2+ will be skipped.")
     EMAIL = "researcher@example.com"  # Being polite to OpenAlex
 
     # Storage
@@ -148,7 +151,9 @@ def main():
     for i, work in enumerate(author_works, 1):
         node = create_work_node(work, 'author')
         nodes[node['id']] = node
-        print(f"  {i}. {node['title'][:80]}... ({node['cited_by_count']} citations)")
+        title = node['title']
+        title_display = title[:80] + ("..." if len(title) > 80 else "")
+        print(f"  {i}. {title_display} ({node['cited_by_count']} citations)")
 
     # Step 3: Fetch citing papers for each author work
     print(f"\nFetching citing papers for {len(author_works)} works...")
@@ -177,7 +182,10 @@ def main():
             
             cursor = citing_data.get('meta', {}).get('next_cursor')
             
-            if not cursor or len(citing_papers) >= 500:  # Reasonable limit
+            if len(citing_papers) >= 500:
+                print(f"    Warning: hit 500-paper cap for '{work_title}' (actual cited_by_count: {work.get('cited_by_count', '?')}). Edges may be incomplete.")
+                break
+            if not cursor:
                 break
         
         print(f"    Found {len(citing_papers)} citing papers")
