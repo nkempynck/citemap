@@ -69,9 +69,22 @@ Then open [http://localhost:8000/network.html](http://localhost:8000/network.htm
 
 ### How it works
 
-On the first run the AI agent calls the OpenAlex API, writes a reusable script, and generates all outputs. Every run after that executes that script directly — no AI needed, no API cost beyond the free OpenAlex API.
+On the first run the AI agent calls the OpenAlex API, writes a reusable script (`scrape_citations.py`), and generates all outputs. Every run after that executes that script directly — no AI needed, no API cost beyond the free OpenAlex API.
 
 ### Cost
 
 - **Every run after the first:** free
 - **First run (agent writes the script):** ~$0.05–$0.30 via Anthropic API
+
+---
+
+### Advanced: controlling agent vs. script mode
+
+By default `run.py` runs the generated script if it exists, and falls back to the agent only if something goes wrong. You can override this:
+
+```bash
+python run.py --script   # always run the script, never fall back to the agent
+python run.py --agent    # force the agent to run (re-generates the script from scratch)
+```
+
+`--agent` is useful if the generated script has gotten out of date or is producing wrong output and you want the AI to rewrite it. You'll need a valid `ANTHROPIC_API_KEY` set in your environment for this.
