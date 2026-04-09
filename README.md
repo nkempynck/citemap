@@ -49,9 +49,21 @@ Or skip the lookup entirely if you already know the [OpenAlex author ID](https:/
 python run.py --name "Jane Smith" --id "A1234567890"
 ```
 
+### View the network locally
+
+After running, start a local server in the project folder:
+
+```bash
+python -m http.server 8000
+```
+
+Then open [http://localhost:8000/network.html](http://localhost:8000/network.html) in your browser.
+
+> Opening `network.html` directly as a file won't work — browsers block local file requests for security reasons. The local server sidesteps this.
+
 ### Output
 
-- **`network.html`** — interactive force-directed citation graph, open in browser
+- **`network.html`** — interactive force-directed citation graph
 - **`portal.html`** — paper portal view
 - **`citations.csv`** — flat export with title, authors, year, citations, venue, DOI, and which paper was cited
 
