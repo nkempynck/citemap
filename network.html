@@ -243,7 +243,12 @@ function mergePreprints(data) {
 fetch('citation_data.json')
   .then(r => r.json())
   .then(d => { DATA = mergePreprints(d); initGraph(); })
-  .catch(e => { document.getElementById('loading').textContent = 'Error: ' + e; });
+  .catch(e => {
+    const msg = e instanceof SyntaxError
+      ? 'Could not load citation_data.json — make sure it is deployed alongside network.html.'
+      : 'Error loading data: ' + e;
+    document.getElementById('loading').textContent = msg;
+  });
 
 function sliderToCitation(v) {
   const x = Math.max(0, Math.min(100, parseFloat(v) || 0)) / 100;

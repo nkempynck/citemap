@@ -44,15 +44,9 @@ To find an OpenAlex author ID manually, search at [openalex.org/authors](https:/
 
 ## Publish to GitHub Pages
 
-After running `run.py`, copy the web files into `docs/` with:
+After running `run.py`, commit `network.html`, `portal.html`, and `citation_data.json` and push. All three must be in the same location that GitHub Pages serves from.
 
-```bash
-bash deploy.sh
-```
-
-Then commit and push `docs/` yourself whenever you want to update the live version.
-
-Enable GitHub Pages once in your repo: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / `docs`**
+Enable GitHub Pages once in your repo: **Settings → Pages → Source: Deploy from a branch → Branch: `main` / root**
 
 Your network will be live at `https://<username>.github.io/<repo>/network.html`.
 

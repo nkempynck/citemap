@@ -203,7 +203,12 @@ function mergePreprints(data) {
 fetch('citation_data.json')
   .then(r => r.json())
   .then(d => { DATA = mergePreprints(d); init(); })
-  .catch(e => { document.getElementById('loading').textContent = 'Error loading data: ' + e; });
+  .catch(e => {
+    const msg = e instanceof SyntaxError
+      ? 'Could not load citation_data.json — make sure it is deployed alongside portal.html.'
+      : 'Error loading data: ' + e;
+    document.getElementById('loading').textContent = msg;
+  });
 
 function initMaps() {
   NODE_MAP = new Map(DATA.nodes.map(n => [n.id, n]));
