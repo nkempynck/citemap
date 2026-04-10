@@ -474,7 +474,7 @@ function initGraph() {
   // Auto-scale citation threshold to keep initial render under 3000 non-author nodes
   const TARGET_NODES = 3000;
   const nonAuthorNodes = DATA.nodes.filter(n => n.type !== 'author');
-  let autoMin = 1;
+  let autoMin = 0;
   if (nonAuthorNodes.length > TARGET_NODES) {
     const sorted = nonAuthorNodes.map(n => n.cited_by_count || 0).sort((a, b) => b - a);
     autoMin = sorted[TARGET_NODES] + 1;
@@ -482,7 +482,7 @@ function initGraph() {
   const citeMin = document.getElementById('citeMin');
   citeMin.value = citationToSlider(autoMin).toFixed(1);
   document.getElementById('citeMinVal').textContent = sliderToCitation(citeMin.value);
-  if (autoMin > 1) {
+  if (autoMin > 0) {
     const authorCount2 = DATA.nodes.filter(n => n.type === 'author').length;
     document.getElementById('subtitle').textContent =
       authorCount2 + ' author papers · ' + DATA.nodes.length + ' in network — auto-filtered to ≥' + autoMin + ' citations';
