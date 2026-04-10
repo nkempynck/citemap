@@ -2,10 +2,538 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="0; url=network.html">
-<title>Citation Network</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>citemap</title>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
+  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
+  --accent: #2d6a4f; --accent-dark: #1b4332;
+  --coral: #d85a30; --blue: #185fa5;
+  --sans: 'Outfit', system-ui, sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; }
+.view { width: 100%; max-width: 580px; }
+.brand { font-family: var(--serif); font-size: 2rem; font-weight: 600; margin-bottom: 6px; }
+.tagline { color: var(--text3); font-size: 0.88rem; margin-bottom: 32px; font-weight: 300; }
+.search-row { display: flex; gap: 8px; }
+.search-input { flex: 1; padding: 10px 14px; border: 1px solid var(--bg3); border-radius: 8px; font-family: var(--sans); font-size: 0.95rem; background: white; outline: none; transition: border-color 0.15s; }
+.search-input:focus { border-color: var(--accent); }
+.btn { padding: 10px 20px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; font-family: var(--sans); font-size: 0.88rem; font-weight: 500; transition: background 0.12s; }
+.btn-primary { background: var(--accent); color: white; border-color: var(--accent-dark); }
+.btn-primary:hover { background: var(--accent-dark); }
+.btn-secondary { background: var(--bg2); color: var(--text2); border-color: var(--bg3); }
+.btn-secondary:hover { background: var(--bg3); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.candidates { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.candidate-card { padding: 12px 16px; background: white; border: 1px solid var(--bg3); border-radius: 8px; cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; }
+.candidate-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.candidate-name { font-weight: 500; margin-bottom: 2px; }
+.candidate-meta { font-size: 0.78rem; color: var(--text3); }
+.msg { margin-top: 10px; font-size: 0.83rem; }
+.msg.error { color: var(--coral); }
+.msg.muted { color: var(--text3); }
+
+/* Fetch view */
+.fetch-author { font-family: var(--serif); font-size: 1.4rem; font-weight: 600; margin-bottom: 3px; }
+.fetch-meta { font-size: 0.82rem; color: var(--text3); margin-bottom: 18px; }
+.progress-track { background: var(--bg3); border-radius: 4px; height: 5px; margin-bottom: 18px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 4px; width: 0%; transition: width 0.3s; }
+.log-box { background: white; border: 1px solid var(--bg3); border-radius: 8px; padding: 10px 14px; height: 290px; overflow-y: auto; font-size: 0.76rem; font-family: 'Courier New', monospace; color: var(--text2); line-height: 1.65; }
+.log-line.head { color: var(--text); font-weight: 600; margin-top: 2px; }
+.log-line.err { color: var(--coral); }
+.fetch-btns { margin-top: 12px; display: flex; gap: 8px; }
+
+/* Done view */
+.done-check { font-size: 1.6rem; margin-bottom: 10px; }
+.done-author { font-family: var(--serif); font-size: 1.4rem; font-weight: 600; margin-bottom: 6px; }
+.done-stats { font-size: 0.84rem; color: var(--text2); margin-bottom: 22px; line-height: 1.8; }
+.done-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+.storage-warn { margin-top: 12px; font-size: 0.78rem; color: var(--coral); }
+</style>
 </head>
 <body>
-<a href="network.html">Go to citation network</a>
+
+<!-- Search -->
+<div class="view" id="viewSearch">
+  <div class="brand">citemap</div>
+  <div class="tagline">Map the citation network of any researcher via OpenAlex</div>
+  <div class="search-row">
+    <input class="search-input" id="searchInput" type="text" placeholder="Author name…" autocomplete="off"
+      onkeydown="if(event.key==='Enter' && !searching) doSearch()">
+    <button class="btn btn-primary" id="searchBtn" onclick="doSearch()">Search</button>
+  </div>
+  <div id="searchMsg" class="msg"></div>
+  <div id="candidates" class="candidates"></div>
+</div>
+
+<!-- Fetching -->
+<div class="view" id="viewFetch" style="display:none">
+  <div class="fetch-author" id="fetchAuthor"></div>
+  <div class="fetch-meta" id="fetchMeta"></div>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="log-box" id="logBox"></div>
+  <div class="fetch-btns">
+    <button class="btn btn-secondary" onclick="cancelFetch()">Cancel</button>
+  </div>
+</div>
+
+<!-- Done -->
+<div class="view" id="viewDone" style="display:none">
+  <div class="done-check">✓</div>
+  <div class="done-author" id="doneAuthor"></div>
+  <div class="done-stats" id="doneStats"></div>
+  <div class="done-btns">
+    <button class="btn btn-primary" id="viewNetBtn" onclick="goToNetwork()">View network</button>
+    <button class="btn btn-secondary" id="viewPortalBtn" onclick="goToPortal()">Table view</button>
+    <button class="btn btn-secondary" onclick="doDownload()">Download JSON</button>
+    <button class="btn btn-secondary" onclick="reset()">Search again</button>
+  </div>
+  <div class="storage-warn" id="storageWarn"></div>
+</div>
+
+<script>
+const BASE = 'https://api.openalex.org';
+const MAILTO = 'citemap@tool.com';
+const MAX_CONCURRENT = 8;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let searching = false;
+let aborted = false;
+let resultData = null;
+let candidates = [];
+
+// ── Semaphore ──────────────────────────────────────────────────────────────
+function makeSem(n) {
+  let active = 0; const q = [];
+  return {
+    acquire: () => new Promise(res => { active < n ? (active++, res()) : q.push(res); }),
+    release() { active--; q.length && (active++, q.shift()())  ; }
+  };
+}
+const sem = makeSem(MAX_CONCURRENT);
+
+// ── API ────────────────────────────────────────────────────────────────────
+async function api(path) {
+  if (aborted) throw new Error('aborted');
+  const url = `${BASE}/${path}${path.includes('?') ? '&' : '?'}mailto=${MAILTO}`;
+  await sem.acquire();
+  try {
+    for (let t = 0; t < 4; t++) {
+      if (aborted) throw new Error('aborted');
+      await sleep(50);
+      let r;
+      try { r = await fetch(url); } catch (e) { if (t === 3) throw e; await sleep(600 * 2 ** t); continue; }
+      if (r.status === 429) { await sleep(2000 * 2 ** t); continue; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }
+    throw new Error('max retries');
+  } finally { sem.release(); }
+}
+
+async function allPages(path) {
+  const out = []; let cursor = '*';
+  while (true) {
+    const d = await api(`${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`);
+    const items = d.results || [];
+    out.push(...items);
+    cursor = d.meta?.next_cursor;
+    if (!cursor || items.length < 200) break;
+  }
+  return out;
+}
+
+// ── Data helpers ───────────────────────────────────────────────────────────
+const xid = url => (url || '').split('/').pop();
+
+function mkNode(w, type) {
+  const a = w.authorships || [];
+  const first = a[0]?.author?.display_name || '';
+  return {
+    id: xid(w.id),
+    title: w.title || 'Untitled',
+    authors: !a.length ? 'Unknown' : a.length === 1 ? first : `${first} et al.`,
+    authors_list: a.map(x => x?.author?.display_name).filter(Boolean),
+    year: w.publication_year || null,
+    date: w.publication_date || null,
+    cited_by_count: w.cited_by_count || 0,
+    venue: w.primary_location?.source?.display_name || null,
+    doi: w.doi || null,
+    url: w.id || null,
+    type
+  };
+}
+
+async function fetchCiting(workId, cap = 2000) {
+  const out = []; let cursor = '*';
+  while (out.length < cap) {
+    const d = await api(`works?filter=cites:${workId}&sort=cited_by_count:desc&per_page=200&cursor=${encodeURIComponent(cursor)}`);
+    const items = d.results || [];
+    out.push(...items);
+    cursor = d.meta?.next_cursor;
+    if (!cursor || items.length < 200) break;
+  }
+  return out.slice(0, cap);
+}
+
+// ── Version merging ────────────────────────────────────────────────────────
+const TYPE_P = { author: 5, mutual: 4, citing: 3, reference: 2, level2: 1 };
+
+class UF {
+  find(x) { return this[x] = (this[x] === undefined || this[x] === x) ? x : this.find(this[x]); }
+  union(a, b) { this[this.find(a)] = this.find(b); }
+}
+
+function normDoi(d) {
+  if (!d) return null;
+  const s = d.replace(/https?:\/\/doi\.org\//i, '').toLowerCase();
+  return s.startsWith('10.48550') ? null : s;
+}
+
+function firstLast(n) {
+  const l = n.authors_list?.length ? n.authors_list : [(n.authors || '').replace(' et al.', '')];
+  const parts = (l[0] || '').trim().split(/\s+/);
+  return parts[parts.length - 1]?.toLowerCase() || null;
+}
+
+function sim(a, b) {
+  const w = s => new Set((s || '').toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(x => x.length > 2));
+  const wa = w(a), wb = w(b);
+  if (wa.size < 3 || wb.size < 3) return 0;
+  const inter = [...wa].filter(x => wb.has(x)).length;
+  // Use containment (overlap / shorter set) so subtitle additions don't tank the score
+  return inter / Math.min(wa.size, wb.size);
+}
+
+function mergeVersions(nodeMap, edges) {
+  const uf = new UF();
+  const arr = Object.values(nodeMap);
+
+  // DOI matching
+  const doiIdx = {};
+  arr.forEach(n => { const d = normDoi(n.doi); if (!d) return; doiIdx[d] ? uf.union(n.id, doiIdx[d]) : (doiIdx[d] = n.id); });
+
+  // Title + author + year bucket matching
+  const bkts = {};
+  arr.forEach(n => {
+    const ln = firstLast(n); if (!ln || !n.year) return;
+    for (let dy = -2; dy <= 2; dy++) {
+      const k = `${ln}|${(n.year || 0) + dy}`;
+      (bkts[k] = bkts[k] || []).push(n);
+    }
+  });
+  const compared = new Set();
+  arr.forEach(n => {
+    const ln = firstLast(n); if (!ln || !n.year) return;
+    (bkts[`${ln}|${n.year}`] || []).forEach(m => {
+      if (m.id === n.id) return;
+      const pk = [n.id, m.id].sort().join('~');
+      if (compared.has(pk)) return; compared.add(pk);
+      if (sim(n.title, m.title) >= 0.85) uf.union(n.id, m.id);
+    });
+  });
+
+  // Build groups and canonical nodes
+  const groups = {};
+  arr.forEach(n => { const r = uf.find(n.id); (groups[r] = groups[r] || []).push(n); });
+  const remap = {}, merged = {};
+  // Track non-canonical nodes that had outgoing reference edges (author/mutual type)
+  // so we can drop those edges and keep only the canonical version's references
+  const nonCanonRefSources = new Set();
+  let collapsed = 0;
+  Object.values(groups).forEach(g => {
+    if (g.length === 1) { merged[g[0].id] = g[0]; return; }
+    collapsed += g.length - 1;
+    // Canonical = latest year, tiebreak: most citations
+    g.sort((a, b) => (b.year || 0) - (a.year || 0) || (b.cited_by_count || 0) - (a.cited_by_count || 0));
+    const c = { ...g[0] };
+    c.cited_by_count = g.reduce((s, n) => s + (n.cited_by_count || 0), 0);
+    c.type = g.reduce((best, n) => (TYPE_P[n.type] || 0) > (TYPE_P[best] || 0) ? n.type : best, c.type);
+    g.forEach(n => { remap[n.id] = c.id; });
+    // Non-canonical nodes: all except the first (canonical) in sorted order
+    g.slice(1).forEach(n => {
+      if (n.type === 'author' || n.type === 'mutual') nonCanonRefSources.add(n.id);
+    });
+    merged[c.id] = c;
+  });
+
+  // Remap edges, keeping only the canonical version's outgoing reference edges
+  const edgeSeen = new Set(), remapped = [];
+  edges.forEach(e => {
+    // Drop outgoing edges from non-canonical author/mutual versions (their references)
+    if (nonCanonRefSources.has(e.from)) return;
+    const f = remap[e.from] || e.from, t = remap[e.to] || e.to;
+    if (f === t || !merged[f] || !merged[t]) return;
+    const k = `${f}|${t}`; if (!edgeSeen.has(k)) { edgeSeen.add(k); remapped.push({ from: f, to: t }); }
+  });
+
+  return { nodes: merged, edges: remapped, collapsed };
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function show(id) { ['viewSearch','viewFetch','viewDone'].forEach(v => $(v).style.display = v === id ? '' : 'none'); }
+function log(msg, cls) {
+  const b = $('logBox'), l = document.createElement('div');
+  l.className = 'log-line' + (cls ? ' ' + cls : '');
+  l.textContent = msg; b.appendChild(l); b.scrollTop = b.scrollHeight;
+}
+function progress(p) { $('progressFill').style.width = (p * 100).toFixed(1) + '%'; }
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Search ─────────────────────────────────────────────────────────────────
+async function doSearch() {
+  if (searching) return;
+  const q = $('searchInput').value.trim();
+  if (!q) return;
+  searching = true;
+  $('searchBtn').disabled = true;
+  $('searchMsg').className = 'msg muted';
+  $('searchMsg').textContent = 'Searching OpenAlex…';
+  $('candidates').innerHTML = '';
+
+  try {
+    const d = await fetch(`${BASE}/authors?search=${encodeURIComponent(q)}&per_page=5&mailto=${MAILTO}`).then(r => r.json());
+    candidates = (d.results || []).map(r => ({
+      id: r.id.split('/').pop(),
+      name: r.display_name || '',
+      institution: (r.last_known_institutions || [])[0]?.display_name || 'Unknown institution',
+      works: r.works_count || 0,
+      citations: r.cited_by_count || 0
+    }));
+    $('searchMsg').textContent = '';
+    if (!candidates.length) {
+      $('searchMsg').className = 'msg error';
+      $('searchMsg').textContent = 'No results. Try a different spelling.';
+    } else {
+      $('candidates').innerHTML = candidates.map((r, i) => `
+        <div class="candidate-card" onclick="pick(${i})">
+          <div class="candidate-name">${esc(r.name)}</div>
+          <div class="candidate-meta">${esc(r.institution)} · ${r.works} works · ${r.citations.toLocaleString()} citations</div>
+        </div>`).join('');
+    }
+  } catch (e) {
+    $('searchMsg').className = 'msg error';
+    $('searchMsg').textContent = 'Search failed: ' + e.message;
+  }
+  searching = false;
+  $('searchBtn').disabled = false;
+}
+
+function pick(i) {
+  const r = candidates[i];
+  aborted = false;
+  show('viewFetch');
+  $('fetchAuthor').textContent = r.name;
+  $('fetchMeta').textContent = `${r.institution} · ${r.works} works · ${r.citations.toLocaleString()} citations`;
+  $('logBox').innerHTML = '';
+  progress(0);
+  runFetch(r.id, r.name);
+}
+
+function cancelFetch() { aborted = true; show('viewSearch'); }
+
+// ── Self-healing ───────────────────────────────────────────────────────────
+let healAvailable = false;
+// Silently probe for serve.py on page load
+fetch('/status', { signal: AbortSignal.timeout(400) })
+  .then(r => r.json()).then(d => { if (d.heal) healAvailable = true; }).catch(() => {});
+
+async function tryHeal(err) {
+  if (!healAvailable) return false;
+  log('Self-healing: sending error to Claude…', 'head');
+  try {
+    const r = await fetch('/heal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: err.message, context: err.stack || '' }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      log('Fixed! Reloading in 2 s…', 'head');
+      setTimeout(() => location.reload(), 2000);
+      return true;
+    }
+    log('Healing failed: ' + (data.error || 'unknown'), 'err');
+  } catch (e) {
+    log('Could not reach heal endpoint: ' + e.message, 'err');
+  }
+  return false;
+}
+
+// ── Main fetch ─────────────────────────────────────────────────────────────
+async function runFetch(authorId, authorName) {
+  try {
+    resultData = await fetchAll(authorId, authorName);
+    showDone();
+  } catch (e) {
+    if (e.message === 'aborted') return;
+    log('Fatal: ' + e.message, 'err');
+    const healed = await tryHeal(e);
+    if (!healed) log('Fetch stopped. You can cancel and try again.', 'err');
+  }
+}
+
+async function fetchAll(authorId, authorName) {
+  const nodes = {}, edgeSet = new Set();
+
+  // 1. Author profile
+  log('Fetching author profile…', 'head');
+  const ad = await api(`authors/${authorId}`);
+  const inst = (ad.last_known_institutions || [])[0]?.display_name || 'Unknown';
+  const authorInfo = {
+    name: ad.display_name || authorName,
+    openalex_id: authorId,
+    institution: inst,
+    total_citations: ad.cited_by_count || 0,
+    h_index: ad.summary_stats?.h_index || 0,
+    works_count: ad.works_count || 0
+  };
+  log(`  ${authorInfo.name} · ${inst} · ${authorInfo.total_citations.toLocaleString()} citations · h-index ${authorInfo.h_index}`);
+  progress(0.05);
+
+  // 2. Author works
+  log('Fetching author works…', 'head');
+  const rawWorks = await allPages(`works?filter=author.id:${authorId}&sort=cited_by_count:desc&per_page=200`);
+  rawWorks.forEach(w => { const n = mkNode(w, 'author'); nodes[n.id] = n; });
+  const authorIds = new Set(Object.keys(nodes));
+  log(`  Found ${rawWorks.length} author works`);
+  rawWorks.slice(0, 5).forEach((w, i) => log(`  ${i+1}. ${(w.title||'').substring(0,65)} (${w.cited_by_count} citations)`));
+  if (rawWorks.length > 5) log(`  … and ${rawWorks.length - 5} more`);
+  progress(0.1);
+
+  // 3. Citing papers (parallel)
+  log(`Fetching citing papers for ${rawWorks.length} works…`, 'head');
+  let citingDone = 0;
+  await Promise.all(rawWorks.map(async w => {
+    if (aborted) return;
+    const wid = xid(w.id);
+    const citers = await fetchCiting(wid, 2000);
+    citers.forEach(c => { const n = mkNode(c, 'citing'); if (!nodes[n.id]) nodes[n.id] = n; edgeSet.add(`${n.id}|${wid}`); });
+    citingDone++;
+    log(`  [${citingDone}/${rawWorks.length}] ${(w.title||'').substring(0,50)}… → ${citers.length} citers`);
+    progress(0.1 + (citingDone / rawWorks.length) * 0.45);
+  }));
+
+  // 4. References (bulk)
+  log('Fetching references…', 'head');
+  const refByWork = {};
+  rawWorks.forEach(w => {
+    const refs = (w.referenced_works || []).map(xid).filter(Boolean);
+    if (refs.length) refByWork[xid(w.id)] = refs;
+  });
+  const allRefIds = [...new Set(Object.values(refByWork).flat())];
+  log(`  ${allRefIds.length} unique reference IDs`);
+  const batches = [];
+  for (let i = 0; i < allRefIds.length; i += 50) batches.push(allRefIds.slice(i, i + 50));
+  log(`  Fetching metadata in ${batches.length} batches…`);
+  const refMeta = {};
+  await Promise.all(batches.map(async batch => {
+    if (aborted) return;
+    const d = await api(`works?filter=openalex:${batch.join('|')}&per_page=200`);
+    (d.results || []).forEach(w => { const n = mkNode(w, 'reference'); refMeta[n.id] = n; });
+  }));
+  Object.entries(refByWork).forEach(([wid, refs]) => refs.forEach(rid => {
+    if (!nodes[rid]) { if (refMeta[rid]) nodes[rid] = refMeta[rid]; else return; }
+    edgeSet.add(`${wid}|${rid}`);
+  }));
+  log(`  Added ${Object.values(nodes).filter(n => n.type === 'reference').length} reference nodes`);
+  progress(0.75);
+
+  // 5. Build edge list
+  const edges = [...edgeSet].map(s => { const [from, to] = s.split('|'); return { from, to }; });
+
+  // 6. Mutual reclassification
+  const citesAuthor = new Set(edges.filter(e => authorIds.has(e.to)).map(e => e.from));
+  const citedByAuthor = new Set(edges.filter(e => authorIds.has(e.from)).map(e => e.to));
+  const mutualIds = [...citesAuthor].filter(id => citedByAuthor.has(id) && !authorIds.has(id));
+  mutualIds.forEach(id => { if (nodes[id]) nodes[id].type = 'mutual'; });
+  log(`Reclassified ${mutualIds.length} mutual nodes`);
+
+  // 7. Version merging
+  log('Merging preprint/published versions…');
+  const { nodes: merged, edges: mergedEdges, collapsed } = mergeVersions(nodes, edges);
+  log(`  Collapsed ${collapsed} duplicate nodes`);
+  progress(0.88);
+
+  // 8. Orphan removal
+  const connIds = new Set(mergedEdges.flatMap(e => [e.from, e.to]));
+  const authNodeIds = new Set(Object.values(merged).filter(n => n.type === 'author').map(n => n.id));
+  let orphaned = 0;
+  Object.keys(merged).forEach(id => { if (!connIds.has(id) && !authNodeIds.has(id)) { delete merged[id]; orphaned++; } });
+  log(`Removed ${orphaned} orphaned nodes`);
+  progress(0.95);
+
+  const nodeArr = Object.values(merged);
+  const cnt = t => nodeArr.filter(n => n.type === t).length;
+  log(`\n✓ ${nodeArr.length} nodes · ${mergedEdges.length} edges`);
+  log(`  ${cnt('author')} author · ${cnt('citing')} citing · ${cnt('reference')} references · ${cnt('mutual')} mutual`);
+  progress(1.0);
+
+  return {
+    author: authorInfo,
+    nodes: nodeArr,
+    edges: mergedEdges,
+    metadata: { depth: 1, fetched_at: new Date().toISOString(), total_nodes: nodeArr.length, total_edges: mergedEdges.length, min_citations_for_expansion: 0 }
+  };
+}
+
+// ── Done ───────────────────────────────────────────────────────────────────
+function showDone() {
+  show('viewDone');
+  const d = resultData;
+  $('doneAuthor').textContent = d.author.name;
+  const cnt = t => d.nodes.filter(n => n.type === t).length;
+  $('doneStats').innerHTML =
+    `${d.nodes.length.toLocaleString()} nodes &nbsp;·&nbsp; ${d.edges.length.toLocaleString()} edges<br>` +
+    `${cnt('author')} author &nbsp;·&nbsp; ${cnt('citing')} citing &nbsp;·&nbsp; ${cnt('reference')} references &nbsp;·&nbsp; ${cnt('mutual')} mutual`;
+  $('storageWarn').textContent = '';
+  $('viewNetBtn').style.display = '';
+}
+
+function goToNetwork() {
+  try {
+    localStorage.setItem('citemap_data', JSON.stringify(resultData));
+    window.location.href = 'network.html';
+  } catch (e) {
+    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON and load it in network.html via "Load JSON".';
+    $('viewNetBtn').style.display = 'none';
+    $('viewPortalBtn').style.display = 'none';
+  }
+}
+
+function goToPortal() {
+  try {
+    localStorage.setItem('citemap_data', JSON.stringify(resultData));
+    window.location.href = 'portal.html';
+  } catch (e) {
+    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON and load it in network.html via "Load JSON".';
+    $('viewNetBtn').style.display = 'none';
+    $('viewPortalBtn').style.display = 'none';
+  }
+}
+
+function doDownload() {
+  const name = (resultData.author.name || 'citations').replace(/\s+/g, '_').toLowerCase();
+  const blob = new Blob([JSON.stringify(resultData, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name}_citations.json`;
+  a.click();
+}
+
+function reset() {
+  resultData = null; aborted = false; searching = false;
+  $('searchInput').value = ''; $('candidates').innerHTML = '';
+  $('searchMsg').textContent = ''; $('storageWarn').textContent = '';
+  $('viewNetBtn').style.display = '';
+  $('viewPortalBtn').style.display = '';
+  show('viewSearch');
+}
+</script>
 </body>
 </html>

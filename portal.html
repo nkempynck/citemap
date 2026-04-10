@@ -204,15 +204,22 @@ function mergePreprints(data) {
   return { ...data, nodes: mergedNodes, edges: mergedEdges };
 }
 
-fetch('citation_data.json')
-  .then(r => r.json())
-  .then(d => { DATA = mergePreprints(d); init(); })
-  .catch(e => {
-    const msg = e instanceof SyntaxError
-      ? 'Could not load citation_data.json — make sure it is deployed alongside portal.html.'
-      : 'Error loading data: ' + e;
-    document.getElementById('loading').textContent = msg;
-  });
+// Try localStorage first (set by index.html after a browser fetch), then fall back to file
+(function loadData() {
+  const stored = localStorage.getItem('citemap_data');
+  if (stored) {
+    try { DATA = mergePreprints(JSON.parse(stored)); init(); return; } catch (e) { /* fall through */ }
+  }
+  fetch('citation_data.json')
+    .then(r => r.json())
+    .then(d => { DATA = mergePreprints(d); init(); })
+    .catch(e => {
+      const msg = e instanceof SyntaxError
+        ? 'Could not load citation_data.json — fetch data first via index.html or run the Python script.'
+        : 'Error loading data: ' + e;
+      document.getElementById('loading').textContent = msg;
+    });
+})();
 
 function initMaps() {
   NODE_MAP = new Map(DATA.nodes.map(n => [n.id, n]));

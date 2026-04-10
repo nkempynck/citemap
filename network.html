@@ -252,7 +252,10 @@ details[open] .config-summary::before { transform: rotate(90deg); }
       <button class="graph-btn" onclick="network.fit({animation:true})">Fit</button>
       <button class="graph-btn" onclick="togglePhysics()">Physics</button>
       <button class="graph-btn" onclick="window.open('portal.html')">Portal</button>
+      <button class="graph-btn" onclick="document.getElementById('loadJsonInput').click()">Load JSON</button>
+      <button class="graph-btn" onclick="window.location.href='index.html'">← Search</button>
     </div>
+    <input type="file" id="loadJsonInput" accept=".json" style="display:none" onchange="loadJsonFile(event)">
     <div class="graph-stats" id="graphStats"></div>
     <div class="top-authors-panel" id="topAuthorsPanel">
       <div class="top-authors-header" onclick="toggleTopAuthors()">
@@ -323,15 +326,44 @@ function mergePreprints(data) {
   return { ...data, nodes: mergedNodes, edges: mergedEdges };
 }
 
-fetch('citation_data.json')
-  .then(r => r.json())
-  .then(d => { DATA = mergePreprints(d); initGraph(); })
-  .catch(e => {
-    const msg = e instanceof SyntaxError
-      ? 'Could not load citation_data.json — make sure it is deployed alongside network.html.'
-      : 'Error loading data: ' + e;
-    document.getElementById('loading').textContent = msg;
-  });
+function loadData(data) { DATA = mergePreprints(data); initGraph(); }
+
+function loadJsonFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loading').textContent = 'Loading ' + file.name + '…';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      try { localStorage.setItem('citemap_data', e.target.result); } catch (_) { /* quota exceeded — fine */ }
+      loadData(data);
+    } catch (err) { document.getElementById('loading').textContent = 'Invalid JSON: ' + err.message; }
+  };
+  reader.readAsText(file);
+  event.target.value = ''; // allow re-loading same file
+}
+
+// Defer data loading so all let/const declarations are initialized first (avoids TDZ errors)
+setTimeout(() => {
+  const stored = localStorage.getItem('citemap_data');
+  if (stored) {
+    try { loadData(JSON.parse(stored)); }
+    catch (e) { document.getElementById('loading').textContent = 'Failed to load stored data: ' + e; }
+  } else {
+    fetch('citation_data.json')
+      .then(r => r.json())
+      .then(loadData)
+      .catch(e => {
+        const msg = e instanceof SyntaxError
+          ? 'No data found. Open index.html to fetch a citation network, or deploy citation_data.json alongside this file.'
+          : 'Error loading data: ' + e;
+        document.getElementById('loading').textContent = msg;
+      });
+  }
+}, 0);
 
 function sliderToCitation(v) {
   const x = Math.max(0, Math.min(100, parseFloat(v) || 0)) / 100;
@@ -456,7 +488,8 @@ function initGraph() {
       authorCount2 + ' author papers · ' + DATA.nodes.length + ' in network — auto-filtered to ≥' + autoMin + ' citations';
   }
 
-  buildNetwork();
+  // Defer first render so the browser applies display:grid before vis.js measures the container
+  requestAnimationFrame(buildNetwork);
 
   ['typeFilter','sizeMode','colorMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
   ['yearMin','yearMax','authorYearMin','authorYearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
@@ -569,6 +602,8 @@ async function saveToJson() {
     ...DATA,
     metadata: { ...DATA.metadata, fetched_at: DATA.metadata.fetched_at, merged_at: new Date().toISOString() }
   }, null, 2);
+  // Keep localStorage in sync so reloads reflect merges
+  try { localStorage.setItem('citemap_data', json); } catch (_) { /* quota exceeded */ }
 
   if (window.showSaveFilePicker) {
     try {
