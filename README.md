@@ -2,7 +2,7 @@
 
 Map the citation network of any researcher using the [OpenAlex](https://openalex.org) open API. No login, no API key, no scraping.
 
-**[Live demo](https://nkempynck.github.io/citemap/)**
+**[Try it](https://nkempynck.github.io/citemap/)**
 
 ## Quick start
 
