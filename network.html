@@ -37,6 +37,10 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
 .legend { margin-top: 24px; }
 .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
 .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.author-paper-item { padding: 5px 8px; border-radius: 5px; font-size: 0.8rem; cursor: pointer; line-height: 1.35; color: var(--text2); transition: background 0.1s; }
+.author-paper-item:hover { background: var(--bg2); color: var(--text); }
+.author-paper-item.selected { background: #faece7; color: var(--coral); font-weight: 500; }
+.author-paper-meta { font-size: 0.73rem; color: var(--text3); margin-top: 1px; }
 .node-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bg3); display: none; }
 .node-info h3 { font-family: var(--serif); font-size: 1rem; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
 .node-info p { font-size: 0.82rem; color: var(--text2); margin-bottom: 4px; }
@@ -72,7 +76,12 @@ details[open] .config-summary::before { transform: rotate(90deg); }
   <div class="sidebar">
     <h1 id="title">Citation network</h1>
     <p class="sub" id="subtitle"></p>
-    <p class="intro">An interactive map of academic influence. Each node is a paper — size reflects citation count, color reflects how connected it is in the graph. Green nodes are the author's own works. Click any node to see details.</p>
+    <p class="intro" id="introText">An interactive map of academic influence. Each node is a paper — size reflects citation count, color reflects how connected it is in the graph. Green nodes are the author's own works. Click any node to see details.</p>
+
+    <details id="authorPanel">
+    <summary class="config-summary">Author's papers</summary>
+    <div id="authorPapersList" style="margin-top:6px;display:flex;flex-direction:column;gap:2px;"></div>
+    </details>
 
     <details id="configPanel">
     <summary class="config-summary">Options</summary>
@@ -349,7 +358,10 @@ function initGraph() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'grid';
   document.getElementById('title').textContent = DATA.author.name;
-  document.getElementById('subtitle').textContent = DATA.nodes.length + ' papers, ' + DATA.edges.length + ' citation links';
+  const authorCount = DATA.nodes.filter(n => n.type === 'author').length;
+  document.getElementById('subtitle').textContent =
+    authorCount + ' author papers · ' + DATA.nodes.length + ' papers in network · ' + DATA.edges.length + ' citation links';
+  renderAuthorPapers();
   document.title = DATA.author.name + ' — Citation Network';
   document.querySelector('meta[property="og:title"]').setAttribute('content', DATA.author.name + ' — Citation Network');
 
@@ -386,8 +398,9 @@ function initGraph() {
   citeMin.value = citationToSlider(autoMin).toFixed(1);
   document.getElementById('citeMinVal').textContent = sliderToCitation(citeMin.value);
   if (autoMin > 1) {
+    const authorCount2 = DATA.nodes.filter(n => n.type === 'author').length;
     document.getElementById('subtitle').textContent =
-      DATA.nodes.length + ' papers, ' + DATA.edges.length + ' links — auto-filtered to ≥' + autoMin + ' citations for performance';
+      authorCount2 + ' author papers · ' + DATA.nodes.length + ' in network — auto-filtered to ≥' + autoMin + ' citations';
   }
 
   buildNetwork();
@@ -406,6 +419,83 @@ function initGraph() {
     document.getElementById('citeMinVal').textContent = sliderToCitation(e.target.value);
     buildNetwork();
   });
+}
+
+let selectedAuthorNodeId = null;
+
+function renderAuthorPapers() {
+  const container = document.getElementById('authorPapersList');
+  const authorNodes = DATA.nodes
+    .filter(n => n.type === 'author')
+    .sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0));
+
+  container.innerHTML = authorNodes.map(n => `
+    <div class="author-paper-item" id="apitem-${n.id}"
+      onmouseenter="highlightAuthorPaper('${n.id}', false)"
+      onmouseleave="clearAuthorHighlight()"
+      onclick="selectAuthorPaper('${n.id}')">
+      <div>${n.title || 'Untitled'}</div>
+      <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+    </div>
+  `).join('');
+}
+
+function highlightAuthorPaper(nodeId, keep) {
+  if (!allNodes || !allEdges) return;
+  // Find all nodes connected to this author node
+  const connected = new Set([nodeId]);
+  allEdges.get().forEach(e => {
+    if (e.from === nodeId) connected.add(e.to);
+    if (e.to === nodeId) connected.add(e.from);
+  });
+  const nodeUpdates = allNodes.get().map(n => ({
+    id: n.id,
+    color: connected.has(n.id)
+      ? { background: n._data.origColor.bg, border: n._data.origColor.border }
+      : { background: 'rgba(210,208,200,0.2)', border: 'rgba(210,208,200,0.2)' }
+  }));
+  const edgeUpdates = allEdges.get().map(e => ({
+    id: e.id,
+    color: { color: (e.from === nodeId || e.to === nodeId) ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.03)' }
+  }));
+  allNodes.update(nodeUpdates);
+  allEdges.update(edgeUpdates);
+  // Focus camera on the node
+  if (network) network.focus(nodeId, { scale: 0.6, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+}
+
+function clearAuthorHighlight() {
+  if (selectedAuthorNodeId) return; // keep highlight if something is selected
+  if (!allNodes || !allEdges) return;
+  const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
+  allNodes.update(allNodes.get().map(n => ({
+    id: n.id,
+    color: { background: n._data.origColor.bg, border: n._data.origColor.border }
+  })));
+  allEdges.update(allEdges.get().map(e => ({
+    id: e.id,
+    color: { color: `rgba(0,0,0,${edgeOpacity})` }
+  })));
+}
+
+function selectAuthorPaper(nodeId) {
+  // Deselect previous
+  if (selectedAuthorNodeId) {
+    const prev = document.getElementById('apitem-' + selectedAuthorNodeId);
+    if (prev) prev.classList.remove('selected');
+    if (selectedAuthorNodeId === nodeId) {
+      selectedAuthorNodeId = null;
+      clearAuthorHighlight();
+      return;
+    }
+  }
+  selectedAuthorNodeId = nodeId;
+  const el = document.getElementById('apitem-' + nodeId);
+  if (el) el.classList.add('selected');
+  highlightAuthorPaper(nodeId, true);
+  // Show info panel
+  const node = allNodes ? allNodes.get(nodeId) : null;
+  if (node) showInfo(node._data);
 }
 
 function buildNetwork() {
@@ -570,6 +660,13 @@ function buildNetwork() {
     },
     interaction: { hover: true, tooltipDelay: 200, zoomView: true },
   };
+
+  // Clear author paper selection on rebuild
+  if (selectedAuthorNodeId) {
+    const prev = document.getElementById('apitem-' + selectedAuthorNodeId);
+    if (prev) prev.classList.remove('selected');
+    selectedAuthorNodeId = null;
+  }
 
   if (network) network.destroy();
   network = new vis.Network(container, data, options);
