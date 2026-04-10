@@ -18,7 +18,10 @@
 body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; }
 .view { width: 100%; max-width: 580px; }
 .brand { font-family: var(--serif); font-size: 2rem; font-weight: 600; margin-bottom: 6px; }
-.tagline { color: var(--text3); font-size: 0.88rem; margin-bottom: 32px; font-weight: 300; }
+.tagline { color: var(--text3); font-size: 0.88rem; margin-bottom: 14px; font-weight: 300; }
+.description { font-size: 0.85rem; color: var(--text2); line-height: 1.6; margin-bottom: 28px; }
+.description a { color: var(--accent); text-decoration: none; }
+.description a:hover { text-decoration: underline; }
 .search-row { display: flex; gap: 8px; }
 .search-input { flex: 1; padding: 10px 14px; border: 1px solid var(--bg3); border-radius: 8px; font-family: var(--sans); font-size: 0.95rem; background: white; outline: none; transition: border-color 0.15s; }
 .search-input:focus { border-color: var(--accent); }
@@ -60,9 +63,10 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
 <!-- Search -->
 <div class="view" id="viewSearch">
   <div class="brand">citemap</div>
-  <div class="tagline">Map the citation network of any researcher via OpenAlex</div>
+  <div class="tagline">Map the citation network of any researcher</div>
+  <p class="description">Search for an author to visualise who cites their work, what they reference, and where the connections overlap. Data comes from <a href="https://openalex.org" target="_blank">OpenAlex</a> — free and open, no account needed.</p>
   <div class="search-row">
-    <input class="search-input" id="searchInput" type="text" placeholder="Author name…" autocomplete="off"
+    <input class="search-input" id="searchInput" type="text" placeholder="e.g. Yoshua Bengio" autocomplete="off"
       onkeydown="if(event.key==='Enter' && !searching) doSearch()">
     <button class="btn btn-primary" id="searchBtn" onclick="doSearch()">Search</button>
   </div>
