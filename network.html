@@ -87,13 +87,24 @@ details[open] .config-summary::before { transform: rotate(90deg); }
     </div>
 
     <div class="control-group">
-      <label>Year range</label>
+      <label>Year range (all papers)</label>
       <div class="range-row">
         <span class="range-val" id="yearMinVal"></span>
         <input type="range" id="yearMin">
         <input type="range" id="yearMax">
         <span class="range-val" id="yearMaxVal"></span>
       </div>
+    </div>
+
+    <div class="control-group">
+      <label>Author papers year range</label>
+      <div class="range-row">
+        <span class="range-val" id="authorYearMinVal"></span>
+        <input type="range" id="authorYearMin">
+        <input type="range" id="authorYearMax">
+        <span class="range-val" id="authorYearMaxVal"></span>
+      </div>
+      <div class="control-help">Restricts which author papers are shown, and removes nodes that only connect to filtered-out author papers.</div>
     </div>
 
     <div class="control-group">
@@ -352,14 +363,37 @@ function initGraph() {
   yrMin.value = minY; yrMax.value = maxY;
   document.getElementById('yearMinVal').textContent = minY;
   document.getElementById('yearMaxVal').textContent = maxY;
+
+  // Author-paper year range (same bounds)
+  const authorYears = DATA.nodes.filter(n => n.type === 'author').map(n => n.year).filter(Boolean);
+  const authorMinY = authorYears.length ? Math.min(...authorYears) : minY;
+  const authorMaxY = authorYears.length ? Math.max(...authorYears) : maxY;
+  const ayrMin = document.getElementById('authorYearMin');
+  const ayrMax = document.getElementById('authorYearMax');
+  ayrMin.min = ayrMax.min = authorMinY; ayrMin.max = ayrMax.max = authorMaxY;
+  ayrMin.value = authorMinY; ayrMax.value = authorMaxY;
+  document.getElementById('authorYearMinVal').textContent = authorMinY;
+  document.getElementById('authorYearMaxVal').textContent = authorMaxY;
+  // Auto-scale citation threshold to keep initial render under 3000 non-author nodes
+  const TARGET_NODES = 3000;
+  const nonAuthorNodes = DATA.nodes.filter(n => n.type !== 'author');
+  let autoMin = 1;
+  if (nonAuthorNodes.length > TARGET_NODES) {
+    const sorted = nonAuthorNodes.map(n => n.cited_by_count || 0).sort((a, b) => b - a);
+    autoMin = sorted[TARGET_NODES] + 1;
+  }
   const citeMin = document.getElementById('citeMin');
-  citeMin.value = citationToSlider(0).toFixed(1);
+  citeMin.value = citationToSlider(autoMin).toFixed(1);
   document.getElementById('citeMinVal').textContent = sliderToCitation(citeMin.value);
+  if (autoMin > 1) {
+    document.getElementById('subtitle').textContent =
+      DATA.nodes.length + ' papers, ' + DATA.edges.length + ' links — auto-filtered to ≥' + autoMin + ' citations for performance';
+  }
 
   buildNetwork();
 
   ['typeFilter','sizeMode','colorMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
-  ['yearMin','yearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
+  ['yearMin','yearMax','authorYearMin','authorYearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
     const el = document.getElementById(id);
     const valEl = document.getElementById(id + 'Val');
     if (!el) return;
@@ -378,6 +412,8 @@ function buildNetwork() {
   const typeFilter = document.getElementById('typeFilter').value;
   const yearMin = parseInt(document.getElementById('yearMin').value);
   const yearMax = parseInt(document.getElementById('yearMax').value);
+  const authorYearMin = parseInt(document.getElementById('authorYearMin').value);
+  const authorYearMax = parseInt(document.getElementById('authorYearMax').value);
   const citeMin = sliderToCitation(document.getElementById('citeMin').value);
   const sizeMode = document.getElementById('sizeMode').value || 'asinh';
   const colorMode = document.getElementById('colorMode').value;
@@ -420,9 +456,30 @@ function buildNetwork() {
     if (typeFilter === 'no-ref' && (n.type === 'reference' || n.type === 'level2')) return;
     if (typeFilter === 'author-only' && n.type !== 'author') return;
     if (n.year && (n.year < yearMin || n.year > yearMax)) return;
+    if (n.type === 'author' && n.year && (n.year < authorYearMin || n.year > authorYearMax)) return;
     if ((n.cited_by_count || 0) < citeMin && n.type !== 'author') return;
     visibleIds.add(n.id);
   });
+
+  // Prune non-author nodes that only connected to filtered-out author papers
+  const visibleAuthorIds = new Set(
+    DATA.nodes.filter(n => n.type === 'author' && visibleIds.has(n.id)).map(n => n.id)
+  );
+  const authorYearFiltered = authorYearMin > parseInt(document.getElementById('authorYearMin').min) ||
+                             authorYearMax < parseInt(document.getElementById('authorYearMax').max);
+  if (authorYearFiltered) {
+    const nodeTypeMap = new Map(DATA.nodes.map(n => [n.id, n.type]));
+    const connectedToVisibleAuthor = new Set();
+    DATA.edges.forEach(e => {
+      if (visibleAuthorIds.has(e.to))   connectedToVisibleAuthor.add(e.from);
+      if (visibleAuthorIds.has(e.from)) connectedToVisibleAuthor.add(e.to);
+    });
+    for (const id of visibleIds) {
+      if (nodeTypeMap.get(id) !== 'author' && !connectedToVisibleAuthor.has(id)) {
+        visibleIds.delete(id);
+      }
+    }
+  }
 
   // Pass 2: compute degree (edge count) per visible node
   const degreeMap = {};
@@ -488,7 +545,8 @@ function buildNetwork() {
     }
   });
 
-  document.getElementById('graphStats').textContent = nodes.length + ' nodes, ' + edges.length + ' edges · min citations ' + citeMin + (nodes.length === 0 ? ' · no papers match current filters' : '');
+  const perfWarning = nodes.length > 3000 ? ' ⚠ >3000 nodes — may be slow' : '';
+  document.getElementById('graphStats').textContent = nodes.length + ' nodes, ' + edges.length + ' edges · min citations ' + citeMin + (nodes.length === 0 ? ' · no papers match current filters' : '') + perfWarning;
   allNodes = new vis.DataSet(nodes);
   allEdges = new vis.DataSet(edges);
 
@@ -497,16 +555,16 @@ function buildNetwork() {
   const options = {
     nodes: { shape: 'dot' },
     edges: { smooth: { type: 'continuous', roundness: 0.15 } },
-    layout: { improvedLayout: true },
+    layout: { improvedLayout: false },
     physics: {
       enabled: physicsOn,
-      stabilization: { iterations: 400, fit: true },
+      stabilization: { iterations: 150, fit: true },
       barnesHut: {
-        gravitationalConstant: -7000,
-        centralGravity: 0.08,
-        springLength: 190,
-        springConstant: 0.03,
-        damping: 0.16,
+        gravitationalConstant: -12000,
+        centralGravity: 0.02,
+        springLength: 400,
+        springConstant: 0.02,
+        damping: 0.2,
         avoidOverlap: avoidOverlap
       }
     },

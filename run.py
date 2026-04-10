@@ -160,11 +160,11 @@ Add &mailto=your@email.com to be polite.
 
 Key endpoints:
 - Author info: https://api.openalex.org/authors/{OPENALEX_AUTHOR_ID}?mailto=your@email.com
-- Author's works: https://api.openalex.org/works?filter=author.id:{OPENALEX_AUTHOR_ID}&sort=cited_by_count:desc&per_page=100&mailto=your@email.com
-- Papers citing a work: https://api.openalex.org/works?filter=cites:WORK_ID&per_page=100&cursor=*&mailto=your@email.com
-- Papers referenced by a work: https://api.openalex.org/works?filter=cited_by:WORK_ID&per_page=100&cursor=*&mailto=your@email.com
-  NOTE: "cited_by" filter means "works that are cited BY this work" = its references
+- Author's works: https://api.openalex.org/works?filter=author.id:{OPENALEX_AUTHOR_ID}&sort=cited_by_count:desc&per_page=200&mailto=your@email.com
+- Papers citing a work: https://api.openalex.org/works?filter=cites:WORK_ID&sort=cited_by_count:desc&per_page=200&cursor=*&mailto=your@email.com
+- Bulk metadata: https://api.openalex.org/works?filter=openalex:W1|W2|W3&per_page=200&mailto=your@email.com
 - Use cursor pagination: &cursor=* for first page, then use next_cursor from response
+- Max per_page is 200
 
 === OUTPUT FORMAT ===
 
@@ -190,7 +190,7 @@ Save as citation_data.json with this exact structure:
       "venue": "Nature",
       "doi": "https://doi.org/...",
       "url": "https://openalex.org/W...",
-      "type": "author"               // "author" | "citing" | "reference" | "level2"
+      "type": "author"               // "author" | "citing" | "reference" | "mutual" | "level2"
     }}}}
   ],
   "edges": [
@@ -222,41 +222,77 @@ Save as citation_data.json with this exact structure:
 3. For each author work, fetch citing papers (level 1 — "citing")
    - These are papers that cite the author's work
    - Edge: from citing_paper to author_work
-   - Use cursor pagination for complete results
+   - Sort by citation count descending: &sort=cited_by_count:desc
+   - Cap at 2000 papers per work (keeps the most-cited citers if capped)
+   - Use cursor pagination
    - Print progress: "  Fetching citers for: [title]... [N] found"
+   - Run in parallel using ThreadPoolExecutor (max 5 workers)
 
 4. For each author work, get referenced papers (level 1 — "reference")
-   - Use the "referenced_works" field from the work object — this is a list
-     of OpenAlex IDs already included in the works response. No extra API
-     call needed for the IDs, but you DO need to fetch each work's metadata
-     (title, year, etc.) in bulk.
-   - Bulk fetch: https://api.openalex.org/works?filter=openalex:W1|W2|W3&per_page=100
-     (pipe-separated list of IDs, up to 50 per request)
+   - Use the "referenced_works" field from the work object — already in the
+     works response, no extra API call needed for the IDs.
+   - Bulk fetch metadata: https://api.openalex.org/works?filter=openalex:W1|W2|W3&per_page=200
+     (pipe-separated IDs, up to 50 per request, run in parallel)
    - Edge: from author_work to referenced_paper
    - Print progress: "  Fetching references for: [title]... [N] found"
 
 5. Skip level 2 if DEPTH == 1. Only do level 2 if DEPTH >= 2.
 
-6. Deduplicate:
-   - Nodes: use OpenAlex work ID as unique key
-   - Edges: deduplicate by (from, to) pair
-   - If a node appears at multiple levels, keep the "closest" type
-     (author > citing/reference > level2)
+6. Deduplicate nodes:
+   - Use OpenAlex work ID as unique key during collection
+   - Type priority: author > mutual > citing > reference > level2
+   - Do NOT assign "mutual" during collection — do it a posteriori (see step 7)
 
-7. Save citation_data.json
+7. Reclassify "mutual" nodes a posteriori:
+   - After all edges are built, a node is "mutual" if it BOTH:
+     a) has an edge TO an author work (it cites the author), AND
+     b) has an edge FROM an author work (the author cites it)
+   - This cannot be detected during collection since both edge directions
+     must exist first. Use set intersection:
+       cites_author    = {{e['from'] for e in edges if e['to'] in author_ids}}
+       cited_by_author = {{e['to']   for e in edges if e['from'] in author_ids}}
+       mutual_ids = (cites_author & cited_by_author) - author_ids
+   - Print: "Reclassified [N] mutual nodes"
+
+8. Merge preprint/published version pairs (version deduplication):
+   - Match two nodes as the same paper if EITHER:
+     a) Same normalized DOI (strip https://doi.org/ prefix; skip arxiv DOIs
+        starting with 10.48550 — they are not stable identifiers), OR
+     b) Same first-author last name AND title similarity >= 0.9 (use
+        difflib.SequenceMatcher) AND publication year within ±2.
+        Pre-filter by (last_name, year) bucket to avoid O(n²) comparisons —
+        build an index keyed by (lastname, year) covering year ±2, then only
+        compare nodes that land in the same bucket.
+   - Use Union-Find to group all versions of the same paper.
+   - Canonical = latest version (highest year, tiebreak: highest cited_by_count)
+   - Merge rules:
+     * cited_by_count = SUM across all versions
+     * type = highest priority (author > mutual > citing > reference > level2)
+     * title, venue, doi, url, date = from canonical (latest version)
+     * Incoming edges (papers citing any version) → all remapped to canonical
+     * Outgoing edges (references) → ONLY from canonical; drop old versions'
+       outgoing edges (latest version has the most complete reference list)
+   - Print: "Version merging: collapsed [N] duplicate nodes"
+
+9. Remove orphaned nodes:
+   - After version merging, delete any node that has no edges, EXCEPT author nodes.
+   - These arise when a preprint's outgoing edges were dropped (in favour of the
+     published version's references), leaving some reference nodes with no connections.
+   - Print: "Removed [N] orphaned nodes (no edges after version merging)"
+
+10. Save citation_data.json
    - Print: "Saved citation_data.json ([N] nodes, [M] edges)"
 
-8. Also save citations.csv with columns:
-   title, authors, year, date, citation_count, venue, doi, url, type, cited_papers
-   (cited_papers = semicolon-separated titles of which author papers it cites)
+11. Also save citations.csv with columns:
+    title, authors, year, date, citation_count, venue, doi, url, type, cited_papers
+    (cited_papers = semicolon-separated titles of which author papers it cites)
+    Use a precomputed lookup dict for O(n) performance, not a nested loop.
 
-9. Print final summary:
-   - Author profile info
-   - Number of author works
-   - Number of citing papers
-   - Number of referenced papers
-   - Total unique nodes and edges
-   - Expected vs actual coverage
+12. Print final summary:
+    - Author profile info
+    - Number of author works, citing papers, references, mutual nodes
+    - Total unique nodes and edges
+    - Total time
 
 === CRITICAL: LOGGING ===
 
@@ -273,15 +309,18 @@ Example output the user should see:
   "Author: {AUTHOR_NAME}, [institution], [citations] citations"
   "Fetching author works..."
   "  1. Some Paper Title (144 citations)"
-  "Fetching citing papers for N works..."
+  "Fetching citing papers for N works (5 workers in parallel)..."
   "  [1/N] Some Paper Title → 144 citers"
   "Fetching references for N works..."
   "  [1/N] Some Paper Title → 45 references"
+  "Reclassified 12 mutual nodes"
+  "Version merging: collapsed 5 duplicate nodes"
   "Total: 450 nodes, 520 edges. Took 2m 15s."
 
 === IMPORTANT ===
 
-- Be polite: 0.5s delay between API requests
+- Be polite: 0.1s delay between API requests (use time.sleep(0.1))
+- Handle 429 rate-limit responses with exponential backoff
 - Use cursor pagination for list endpoints
 - NEVER use fake or placeholder data
 - Handle None values safely — venue, date, doi can all be None

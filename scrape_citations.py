@@ -21,7 +21,9 @@ Min citations for level 2 expansion: 20
 
 import argparse
 import csv
+import difflib
 import json
+import re
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -158,6 +160,154 @@ def _fetch_reference_batch(args: Tuple) -> List[Dict]:
     if refs_data:
         return [create_work_node(rw, 'reference') for rw in refs_data.get('results', [])]
     return []
+
+
+TYPE_PRIORITY = {'author': 4, 'mutual': 3, 'citing': 2, 'reference': 1, 'level2': 0}
+
+
+def merge_versions(nodes: dict, edges: set) -> Tuple[dict, set]:
+    """
+    Detect and merge preprint/published version pairs across all node types.
+
+    Match criteria (either is sufficient):
+      1. Same normalized DOI (arxiv DOIs excluded — not stable identifiers)
+      2. Title similarity >= 0.9 with publication year within ±2
+
+    Merge rules:
+      - canonical = latest version (highest year, tiebreak: highest cited_by_count)
+      - cited_by_count = sum across all versions
+      - type = highest priority (author > mutual > citing > reference)
+      - metadata (title, venue, doi, url, date) = from canonical
+      - incoming edges = union (all papers that cited any version → canonical)
+      - outgoing edges = only from canonical (latest version's references)
+    """
+    def normalize_doi(doi):
+        if not doi:
+            return None
+        d = doi.lower().strip()
+        d = re.sub(r'^https?://doi\.org/', '', d)
+        if d.startswith('10.48550/'):
+            return None  # arxiv preprint DOI, not a stable identifier
+        return d or None
+
+    node_list = list(nodes.values())
+
+    # --- Union-Find ---
+    parent = {n['id']: n['id'] for n in node_list}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    # Phase 1a: DOI-based merging
+    print(f"  Version merging: checking DOIs for {len(node_list)} nodes...")
+    doi_index = {}
+    doi_matches = 0
+    for n in node_list:
+        doi = normalize_doi(n.get('doi'))
+        if doi:
+            if doi in doi_index:
+                union(doi_index[doi], n['id'])
+                doi_matches += 1
+            else:
+                doi_index[doi] = n['id']
+    print(f"  DOI matches: {doi_matches}")
+
+    # Phase 1b: fuzzy title merging within same first-author last name + year ±2
+    def first_author_lastname(authors_str):
+        if not authors_str:
+            return None
+        # "Last Name et al." or "Full Name" — take the last word before " et al." or end
+        name = authors_str.split(' et al.')[0].strip()
+        return name.split()[-1].lower() if name else None
+
+    # Index by (lastname, year) bucket
+    lastname_year_index: Dict[tuple, list] = {}
+    for n in node_list:
+        if not n.get('year') or not n.get('title'):
+            continue
+        ln = first_author_lastname(n.get('authors'))
+        if ln:
+            for dy in range(-2, 3):
+                lastname_year_index.setdefault((ln, n['year'] + dy), []).append(n)
+
+    checked_pairs: set = set()
+    fuzzy_matches = 0
+    candidates = [n for n in node_list if n.get('year') and n.get('title') and first_author_lastname(n.get('authors'))]
+    print(f"  Fuzzy title matching for {len(candidates)} nodes (same first-author last name + year ±2)...")
+    for n in candidates:
+        ln = first_author_lastname(n['authors'])
+        for other in lastname_year_index.get((ln, n['year']), []):
+            if other['id'] == n['id']:
+                continue
+            pair = (min(n['id'], other['id']), max(n['id'], other['id']))
+            if pair in checked_pairs:
+                continue
+            checked_pairs.add(pair)
+            other_title = other.get('title') or ''
+            if not other_title:
+                continue
+            sim = difflib.SequenceMatcher(None, n['title'].lower(), other_title.lower()).ratio()
+            if sim >= 0.9:
+                union(n['id'], other['id'])
+                fuzzy_matches += 1
+    print(f"  Fuzzy matches: {fuzzy_matches}")
+
+    # Phase 2: collect groups
+    groups: Dict[str, list] = {}
+    for n in node_list:
+        groups.setdefault(find(n['id']), []).append(n)
+
+    # Phase 3: merge each group
+    id_remap: Dict[str, str] = {}
+    new_nodes: dict = {}
+    n_merged = 0
+
+    for group in groups.values():
+        if len(group) == 1:
+            new_nodes[group[0]['id']] = group[0]
+            continue
+
+        n_merged += len(group) - 1
+        # Canonical = latest version
+        group_sorted = sorted(
+            group,
+            key=lambda n: (n.get('year') or 0, n.get('cited_by_count') or 0),
+            reverse=True
+        )
+        canonical = group_sorted[0]
+        cid = canonical['id']
+
+        for n in group_sorted[1:]:
+            id_remap[n['id']] = cid
+
+        total_cited = sum(n.get('cited_by_count') or 0 for n in group)
+        best_type = max(
+            (n.get('type', 'reference') for n in group),
+            key=lambda t: TYPE_PRIORITY.get(t, 0)
+        )
+        new_nodes[cid] = {**canonical, 'cited_by_count': total_cited, 'type': best_type}
+
+    # Phase 4: remap edges
+    # - Outgoing edges from non-canonical (old) versions → DROP (use only latest refs)
+    # - Incoming edges to non-canonical versions → remap target to canonical
+    new_edges: set = set()
+    for from_id, to_id in edges:
+        if from_id in id_remap:
+            continue  # drop old version's outgoing references
+        new_to = id_remap.get(to_id, to_id)
+        if from_id != new_to:
+            new_edges.add((from_id, new_to))
+
+    print(f"Version merging: collapsed {n_merged} duplicate nodes")
+    return new_nodes, new_edges
 
 
 def main():
@@ -338,6 +488,19 @@ def main():
     for nid in mutual_ids:
         nodes[nid]['type'] = 'mutual'
     print(f"Reclassified {len(mutual_ids)} mutual nodes")
+
+    # Merge preprint/published version pairs
+    nodes, edges = merge_versions(nodes, edges)
+
+    # Remove orphaned nodes (no remaining edges) except author nodes.
+    # These arise when a preprint's references were dropped in favour of the
+    # published version's reference list, leaving some reference nodes stranded.
+    connected = {nid for pair in edges for nid in pair}
+    orphans = [nid for nid, n in nodes.items() if nid not in connected and n['type'] != 'author']
+    for nid in orphans:
+        del nodes[nid]
+    if orphans:
+        print(f"Removed {len(orphans)} orphaned nodes (no edges after version merging)")
 
     print(f"Final nodes: {len(nodes)}, edges: {len(edges)}")
 
