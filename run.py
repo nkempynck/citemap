@@ -184,6 +184,7 @@ Save as citation_data.json with this exact structure:
       "id": "W1234567890",          // OpenAlex work ID (just the W number)
       "title": "...",
       "authors": "First Author et al.",
+      "authors_list": ["First Author", "Second Author", "..."],  // ALL authors, full names
       "year": 2024,
       "date": "2024-03-15",          // publication_date from OpenAlex, or null
       "cited_by_count": 215,
@@ -215,7 +216,7 @@ Save as citation_data.json with this exact structure:
 
 2. Fetch ALL works by this author (level 0)
    - Type: "author"
-   - For each: id, title, authors, year, date, cited_by_count, venue, doi, url
+   - For each: id, title, authors, authors_list, year, date, cited_by_count, venue, doi, url
    - Print: "Found [N] author works"
    - Print each work title and citation count
 
@@ -325,7 +326,10 @@ Example output the user should see:
 - NEVER use fake or placeholder data
 - Handle None values safely — venue, date, doi can all be None
 - Extract the "date" field (publication_date) from each work
-- For authors field: use first author + "et al." if multiple authors
+- For the authors field: use first author + "et al." if multiple authors (display string)
+- Also store authors_list: a list of all author display names from the authorships field
+  e.g. authors_list = [a['author']['display_name'] for a in work.get('authorships', []) if a.get('author', {{}}).get('display_name')]
+  This is used for author search in the UI (any/first/last author filtering)
 - The OpenAlex work ID format is "https://openalex.org/W1234567890" —
   store just "W1234567890" as the node id
 - If any API call fails, print the error and continue with the next paper.

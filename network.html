@@ -60,6 +60,18 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); }
 details[open] .config-summary::before { transform: rotate(90deg); }
 .intro { font-size: 0.82rem; color: var(--text2); line-height: 1.55; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--bg3); }
 .mobile-wall { display: none; }
+.top-authors-panel { position: absolute; top: 16px; left: 16px; width: 210px; background: rgba(250,250,247,0.96); border: 1px solid var(--bg3); border-radius: 8px; font-size: 0.8rem; box-shadow: 0 2px 8px rgba(0,0,0,0.07); overflow: hidden; }
+.top-authors-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; border-bottom: 1px solid var(--bg3); cursor: pointer; user-select: none; }
+.top-authors-list { max-height: 320px; overflow-y: auto; }
+.top-author-item { display: flex; align-items: center; justify-content: space-between; padding: 5px 12px; cursor: pointer; gap: 8px; color: var(--text2); transition: background 0.1s; }
+.top-author-item:hover { background: var(--bg2); color: var(--text); }
+.top-author-item.active { background: rgba(24,95,165,0.1); color: var(--blue); font-weight: 500; }
+.top-author-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-author-count { font-size: 0.72rem; color: var(--text3); flex-shrink: 0; }
+.ta-tab { flex: 1; padding: 5px 0; font-size: 0.72rem; font-family: var(--sans); background: none; border: none; border-right: 1px solid var(--bg3); cursor: pointer; color: var(--text3); font-weight: 400; transition: background 0.1s; }
+.ta-tab:last-child { border-right: none; }
+.ta-tab:hover { background: var(--bg2); }
+.ta-tab-active { background: var(--bg2); color: var(--text); font-weight: 500; }
 @media (max-width: 720px) {
   .mobile-wall { display: flex; position: fixed; inset: 0; background: var(--bg); z-index: 999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px 32px; gap: 14px; }
   .layout { display: none; }
@@ -74,14 +86,32 @@ details[open] .config-summary::before { transform: rotate(90deg); }
 <div class="loading" id="loading">Loading citation network...</div>
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
-    <h1 id="title">Citation network</h1>
-    <p id="affiliation" style="font-size:0.8rem;color:var(--text3);margin-bottom:4px;font-weight:300"></p>
+    <h1><a id="title" href="#" target="_blank" style="color:inherit;text-decoration:none">Citation network</a></h1>
     <p class="sub" id="subtitle"></p>
     <p class="intro" id="introText">An interactive map of academic influence. Each node is a paper — size reflects citation count, color reflects how connected it is in the graph. Green nodes are the author's own works. Click any node to see details.</p>
 
     <details id="authorPanel">
     <summary class="config-summary">Author's papers</summary>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;margin-bottom:6px;flex-wrap:wrap">
+      <button class="graph-btn" id="mergeModeBtn" onclick="toggleMergeMode()" style="font-size:0.78rem;padding:4px 10px">Merge mode</button>
+      <button class="graph-btn" id="mergeSelectedBtn" onclick="mergeSelected()" style="font-size:0.78rem;padding:4px 10px;display:none;background:#faece7;border-color:#d85a30;color:#a33d1a">Merge selected (<span id="mergeCount">0</span>)</button>
+      <button class="graph-btn" id="saveJsonBtn" onclick="saveToJson()" style="font-size:0.78rem;padding:4px 10px;display:none;background:#d8f3dc;border-color:#2d6a4f;color:#1b4332">Save to JSON</button>
+    </div>
     <div id="authorPapersList" style="margin-top:6px;display:flex;flex-direction:column;gap:2px;"></div>
+    </details>
+
+    <details id="authorSearchPanel">
+    <summary class="config-summary">Search by author</summary>
+    <div style="margin-top:8px">
+      <input type="text" id="authorSearchInput" placeholder="e.g. Smith" oninput="highlightByAuthor()"
+        style="width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid var(--bg3);border-radius:6px;font-size:0.85rem;outline:none;font-family:inherit">
+      <div style="display:flex;gap:12px;margin-top:6px;font-size:0.78rem;color:var(--text2)">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="authorSearchMode" value="any" checked onchange="highlightByAuthor()"> Any position</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="authorSearchMode" value="first" onchange="highlightByAuthor()"> First author</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="authorSearchMode" value="last" onchange="highlightByAuthor()"> Last author</label>
+      </div>
+      <div id="authorSearchCount" style="font-size:0.75rem;color:var(--text3);margin-top:4px;min-height:1rem"></div>
+    </div>
     </details>
 
     <details id="configPanel">
@@ -224,6 +254,20 @@ details[open] .config-summary::before { transform: rotate(90deg); }
       <button class="graph-btn" onclick="window.open('portal.html')">Portal</button>
     </div>
     <div class="graph-stats" id="graphStats"></div>
+    <div class="top-authors-panel" id="topAuthorsPanel">
+      <div class="top-authors-header" onclick="toggleTopAuthors()">
+        <span>Top authors in network</span>
+        <span id="topAuthorsToggle">▾</span>
+      </div>
+      <div id="topAuthorsBody">
+        <div style="display:flex;border-bottom:1px solid var(--bg3)">
+          <button class="ta-tab ta-tab-active" data-scope="all"    onclick="setTopAuthorScope('all')">Both</button>
+          <button class="ta-tab"               data-scope="citing" onclick="setTopAuthorScope('citing')">Citing</button>
+          <button class="ta-tab"               data-scope="ref"    onclick="setTopAuthorScope('ref')">References</button>
+        </div>
+        <div id="topAuthorsList" class="top-authors-list"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -358,14 +402,19 @@ function nodeLabel(n) {
 function initGraph() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'grid';
-  document.getElementById('title').textContent = DATA.author.name;
-  if (DATA.author.institution && DATA.author.institution !== 'Unknown') {
-    document.getElementById('affiliation').textContent = DATA.author.institution;
+  const titleEl = document.getElementById('title');
+  titleEl.textContent = DATA.author.name;
+  if (DATA.author.openalex_id) {
+    titleEl.href = 'https://openalex.org/' + DATA.author.openalex_id;
+    titleEl.title = 'View on OpenAlex';
+    titleEl.style.textDecoration = 'underline dotted';
+    titleEl.style.textUnderlineOffset = '3px';
   }
   const authorCount = DATA.nodes.filter(n => n.type === 'author').length;
   document.getElementById('subtitle').textContent =
     authorCount + ' author papers · ' + DATA.nodes.length + ' papers in network · ' + DATA.edges.length + ' citation links';
   renderAuthorPapers();
+  renderTopAuthors();
   document.title = DATA.author.name + ' — Citation Network';
   document.querySelector('meta[property="og:title"]').setAttribute('content', DATA.author.name + ' — Citation Network');
 
@@ -427,6 +476,126 @@ function initGraph() {
 
 let selectedAuthorNodeId = null;
 const excludedAuthorIds = new Set();
+let mergeMode = false;
+const mergeSelection = new Set();
+let unsavedMerges = false;
+
+function toggleMergeMode() {
+  mergeMode = !mergeMode;
+  mergeSelection.clear();
+  const btn = document.getElementById('mergeModeBtn');
+  btn.style.background = mergeMode ? '#e0edff' : '';
+  btn.style.borderColor = mergeMode ? '#185fa5' : '';
+  btn.style.color = mergeMode ? '#185fa5' : '';
+  document.getElementById('mergeSelectedBtn').style.display = 'none';
+  renderAuthorPapers();
+}
+
+function toggleMergeSelection(nodeId) {
+  if (mergeSelection.has(nodeId)) {
+    mergeSelection.delete(nodeId);
+  } else {
+    mergeSelection.add(nodeId);
+  }
+  const count = mergeSelection.size;
+  const mergeBtn = document.getElementById('mergeSelectedBtn');
+  mergeBtn.style.display = count >= 2 ? 'inline-block' : 'none';
+  document.getElementById('mergeCount').textContent = count;
+  renderAuthorPapers();
+  // Highlight all selected nodes together
+  if (count > 0 && allNodes && allEdges) {
+    const connected = new Set(mergeSelection);
+    allEdges.get().forEach(e => {
+      if (mergeSelection.has(e.from)) connected.add(e.to);
+      if (mergeSelection.has(e.to)) connected.add(e.from);
+    });
+    allNodes.update(allNodes.get().map(n => ({
+      id: n.id,
+      color: connected.has(n.id)
+        ? { background: n._data.origColor.bg, border: n._data.origColor.border }
+        : { background: 'rgba(210,208,200,0.2)', border: 'rgba(210,208,200,0.2)' }
+    })));
+  }
+}
+
+function mergeSelected() {
+  if (mergeSelection.size < 2) return;
+
+  const toMerge = DATA.nodes.filter(n => mergeSelection.has(n.id));
+
+  // Canonical = latest year, tiebreak: highest cited_by_count
+  toMerge.sort((a, b) =>
+    (b.year || 0) - (a.year || 0) || (b.cited_by_count || 0) - (a.cited_by_count || 0)
+  );
+  const canonical = toMerge[0];
+  const removed = toMerge.slice(1).map(n => n.id);
+
+  // Sum citations
+  canonical.cited_by_count = toMerge.reduce((s, n) => s + (n.cited_by_count || 0), 0);
+
+  // Remap edges
+  DATA.edges = DATA.edges
+    .map(e => ({
+      from: removed.includes(e.from) ? canonical.id : e.from,
+      to:   removed.includes(e.to)   ? canonical.id : e.to,
+    }))
+    .filter(e => e.from !== e.to);
+
+  // Deduplicate edges
+  const edgeSet = new Set();
+  DATA.edges = DATA.edges.filter(e => {
+    const key = e.from + '>' + e.to;
+    if (edgeSet.has(key)) return false;
+    edgeSet.add(key);
+    return true;
+  });
+
+  // Remove non-canonical nodes
+  DATA.nodes = DATA.nodes.filter(n => !removed.includes(n.id));
+
+  // Clear state
+  mergeSelection.clear();
+  document.getElementById('mergeSelectedBtn').style.display = 'none';
+  document.getElementById('mergeCount').textContent = '0';
+  unsavedMerges = true;
+  document.getElementById('saveJsonBtn').style.display = 'inline-block';
+
+  renderAuthorPapers();
+  buildNetwork();
+}
+
+async function saveToJson() {
+  const json = JSON.stringify({
+    ...DATA,
+    metadata: { ...DATA.metadata, fetched_at: DATA.metadata.fetched_at, merged_at: new Date().toISOString() }
+  }, null, 2);
+
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'citation_data.json',
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      document.getElementById('saveJsonBtn').textContent = 'Saved!';
+      setTimeout(() => {
+        document.getElementById('saveJsonBtn').textContent = 'Save to JSON';
+      }, 2000);
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return; // user cancelled
+    }
+  }
+
+  // Fallback: download
+  const blob = new Blob([json], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'citation_data.json';
+  a.click();
+}
 
 function renderAuthorPapers() {
   const container = document.getElementById('authorPapersList');
@@ -434,30 +603,56 @@ function renderAuthorPapers() {
     .filter(n => n.type === 'author')
     .sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0));
 
-  // "Select all / none" header
-  const allChecked = authorNodes.every(n => !excludedAuthorIds.has(n.id));
-  container.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-bottom:1px solid var(--bg3)">
-      <input type="checkbox" id="apSelectAll" ${allChecked ? 'checked' : ''} onchange="toggleAllAuthorPapers(this.checked)" style="cursor:pointer">
-      <label for="apSelectAll" style="font-size:0.75rem;color:var(--text3);cursor:pointer;text-transform:uppercase;letter-spacing:0.4px">${allChecked ? 'Deselect all' : 'Select all'}</label>
-    </div>
-  ` + authorNodes.map(n => `
-    <div class="author-paper-item" id="apitem-${n.id}"
-      style="${excludedAuthorIds.has(n.id) ? 'opacity:0.4' : ''}"
-      onmouseenter="if(!excludedAuthorIds.has('${n.id}')) highlightAuthorPaper('${n.id}', false)"
-      onmouseleave="clearAuthorHighlight()"
-      onclick="selectAuthorPaper('${n.id}')">
-      <div style="display:flex;align-items:flex-start;gap:8px">
-        <input type="checkbox" ${excludedAuthorIds.has(n.id) ? '' : 'checked'}
-          onclick="event.stopPropagation(); toggleAuthorPaper('${n.id}', this.checked)"
-          style="margin-top:2px;flex-shrink:0;cursor:pointer">
-        <div>
-          <div>${n.title || 'Untitled'}</div>
-          <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+  if (mergeMode) {
+    // Merge mode: clicking selects for merge, checkboxes hidden
+    container.innerHTML = `
+      <div style="padding:4px 8px;margin-bottom:4px;border-bottom:1px solid var(--bg3);font-size:0.75rem;color:#185fa5">
+        Click papers to select for merge
+      </div>
+    ` + authorNodes.map(n => {
+      const selected = mergeSelection.has(n.id);
+      return `
+      <div class="author-paper-item" id="apitem-${n.id}"
+        style="${selected ? 'background:rgba(24,95,165,0.15);outline:2px solid #185fa5;outline-offset:-2px' : ''}"
+        onmouseenter="highlightAuthorPaper('${n.id}', false)"
+        onmouseleave="clearAuthorHighlight()"
+        onclick="toggleMergeSelection('${n.id}')">
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <div style="width:16px;height:16px;flex-shrink:0;margin-top:2px;border-radius:3px;border:2px solid ${selected ? '#185fa5' : 'var(--text3)'};background:${selected ? '#185fa5' : 'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;color:white">${selected ? '✓' : ''}</div>
+          <div>
+            <div>${n.title || 'Untitled'}</div>
+            <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+          </div>
         </div>
       </div>
-    </div>
-  `).join('');
+    `;
+    }).join('');
+  } else {
+    // Normal mode: checkboxes and click-to-focus
+    const allChecked = authorNodes.every(n => !excludedAuthorIds.has(n.id));
+    container.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-bottom:1px solid var(--bg3)">
+        <input type="checkbox" id="apSelectAll" ${allChecked ? 'checked' : ''} onchange="toggleAllAuthorPapers(this.checked)" style="cursor:pointer">
+        <label for="apSelectAll" style="font-size:0.75rem;color:var(--text3);cursor:pointer;text-transform:uppercase;letter-spacing:0.4px">${allChecked ? 'Deselect all' : 'Select all'}</label>
+      </div>
+    ` + authorNodes.map(n => `
+      <div class="author-paper-item" id="apitem-${n.id}"
+        style="${excludedAuthorIds.has(n.id) ? 'opacity:0.4' : ''}"
+        onmouseenter="if(!excludedAuthorIds.has('${n.id}')) highlightAuthorPaper('${n.id}', false)"
+        onmouseleave="clearAuthorHighlight()"
+        onclick="selectAuthorPaper('${n.id}')">
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <input type="checkbox" ${excludedAuthorIds.has(n.id) ? '' : 'checked'}
+            onclick="event.stopPropagation(); toggleAuthorPaper('${n.id}', this.checked)"
+            style="margin-top:2px;flex-shrink:0;cursor:pointer">
+          <div>
+            <div>${n.title || 'Untitled'}</div>
+            <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
 }
 
 function toggleAuthorPaper(nodeId, checked) {
@@ -486,6 +681,157 @@ function toggleAllAuthorPapers(checked) {
   buildNetwork();
 }
 
+let activeTopAuthor = null;
+let topAuthorScope = 'all'; // 'all' | 'citing' | 'ref'
+
+function setTopAuthorScope(scope) {
+  topAuthorScope = scope;
+  document.querySelectorAll('.ta-tab').forEach(btn => {
+    btn.classList.toggle('ta-tab-active', btn.dataset.scope === scope);
+  });
+  renderTopAuthors();
+}
+
+function renderTopAuthors() {
+  // Determine which node types to include
+  const includedTypes = topAuthorScope === 'citing' ? new Set(['citing', 'mutual'])
+                      : topAuthorScope === 'ref'    ? new Set(['reference', 'mutual'])
+                      : null; // null = all
+
+  const mainName = (DATA.author.name || '').toLowerCase();
+  const counts = {};
+  DATA.nodes.forEach(n => {
+    if (n.type === 'author') return;
+    if (includedTypes && !includedTypes.has(n.type)) return;
+    const list = n.authors_list && n.authors_list.length
+      ? n.authors_list
+      : (n.authors ? [n.authors.replace(' et al.', '')] : []);
+    list.forEach(a => {
+      if (!a || a.toLowerCase().includes(mainName)) return;
+      counts[a] = (counts[a] || 0) + 1;
+    });
+  });
+  const sorted = Object.entries(counts)
+    .filter(([, c]) => c > 1)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 30);
+
+  const container = document.getElementById('topAuthorsList');
+  if (!sorted.length) {
+    container.innerHTML = '<div style="padding:10px 12px;color:var(--text3);font-size:0.78rem">Re-scrape to get full author lists</div>';
+    return;
+  }
+  container.innerHTML = sorted.map(([name, count]) => `
+    <div class="top-author-item" id="ta-${CSS.escape(name)}"
+      onclick="clickTopAuthor('${name.replace(/'/g, "\\'")}')">
+      <span class="top-author-name" title="${name}">${name}</span>
+      <span class="top-author-count">${count}</span>
+    </div>
+  `).join('');
+}
+
+function clickTopAuthor(name) {
+  if (activeTopAuthor === name) {
+    // Deselect
+    activeTopAuthor = null;
+    document.getElementById('authorSearchInput').value = '';
+    highlightByAuthor();
+  } else {
+    activeTopAuthor = name;
+    document.getElementById('authorSearchInput').value = name;
+    // Switch to "any" mode for co-author search
+    const anyRadio = document.querySelector('input[name="authorSearchMode"][value="any"]');
+    if (anyRadio) anyRadio.checked = true;
+    highlightByAuthor();
+    // Open search panel so the user sees the active query
+    document.getElementById('authorSearchPanel').open = true;
+  }
+  // Update active styling
+  document.querySelectorAll('.top-author-item').forEach(el => el.classList.remove('active'));
+  if (activeTopAuthor) {
+    const el = document.getElementById('ta-' + CSS.escape(name));
+    if (el) el.classList.add('active');
+  }
+}
+
+function toggleTopAuthors() {
+  const body = document.getElementById('topAuthorsBody');
+  const toggle = document.getElementById('topAuthorsToggle');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  toggle.textContent = hidden ? '▾' : '▸';
+}
+
+function highlightByAuthor() {
+  const countEl = document.getElementById('authorSearchCount');
+  if (!allNodes || !allEdges) return;
+  const input = document.getElementById('authorSearchInput');
+  const q = input ? input.value.trim().toLowerCase() : '';
+  const modeEl = document.querySelector('input[name="authorSearchMode"]:checked');
+  const mode = modeEl ? modeEl.value : 'any'; // 'any' | 'first' | 'last'
+
+  if (!q) {
+    countEl.textContent = '';
+    // Clear top-author active state if search was manually cleared
+    if (activeTopAuthor) {
+      activeTopAuthor = null;
+      document.querySelectorAll('.top-author-item').forEach(el => el.classList.remove('active'));
+    }
+    if (!selectedAuthorNodeId) {
+      const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
+      allNodes.update(allNodes.get().map(n => ({
+        id: n.id,
+        color: { background: n._data.origColor.bg, border: n._data.origColor.border }
+      })));
+      allEdges.update(allEdges.get().map(e => ({
+        id: e.id,
+        color: { color: `rgba(0,0,0,${edgeOpacity})` }
+      })));
+    }
+    return;
+  }
+
+  const matched = new Set();
+  allNodes.get().forEach(n => {
+    const d = n._data;
+    if (!d) return;
+    // Prefer full authors_list if available (new scrape), fall back to authors string
+    const list = d.authors_list && d.authors_list.length
+      ? d.authors_list
+      : (d.authors ? [d.authors.replace(' et al.', '')] : []);
+
+    let hit = false;
+    if (mode === 'first') {
+      hit = list.length > 0 && list[0].toLowerCase().includes(q);
+    } else if (mode === 'last') {
+      hit = list.length > 0 && list[list.length - 1].toLowerCase().includes(q);
+    } else {
+      hit = list.some(a => a.toLowerCase().includes(q));
+    }
+    if (hit) matched.add(n.id);
+  });
+
+  countEl.textContent = matched.size === 0
+    ? 'No matches'
+    : `${matched.size} paper${matched.size === 1 ? '' : 's'} found`;
+
+  allNodes.update(allNodes.get().map(n => ({
+    id: n.id,
+    color: matched.has(n.id)
+      ? { background: n._data.origColor.bg, border: n._data.origColor.border }
+      : { background: 'rgba(210,208,200,0.2)', border: 'rgba(210,208,200,0.2)' }
+  })));
+  allEdges.update(allEdges.get().map(e => ({
+    id: e.id,
+    color: { color: 'rgba(0,0,0,0.03)' }
+  })));
+
+  if (matched.size > 0 && network) {
+    network.selectNodes([...matched]);
+    network.fit({ nodes: [...matched], animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+  }
+}
+
 function highlightAuthorPaper(nodeId, keep) {
   if (!allNodes || !allEdges) return;
   // Find all nodes connected to this author node
@@ -512,6 +858,9 @@ function highlightAuthorPaper(nodeId, keep) {
 
 function clearAuthorHighlight() {
   if (selectedAuthorNodeId) return; // keep highlight if something is selected
+  // If author search is active, re-apply it instead of full clear
+  const searchInput = document.getElementById('authorSearchInput');
+  if (searchInput && searchInput.value.trim()) { highlightByAuthor(); return; }
   if (!allNodes || !allEdges) return;
   const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
   allNodes.update(allNodes.get().map(n => ({

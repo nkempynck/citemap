@@ -69,6 +69,14 @@ def format_authors(authors_list: List[Dict]) -> str:
     else:
         return f"{first_author} et al."
 
+def extract_authors_list(authors_list: List[Dict]) -> List[str]:
+    """Extract list of all author display names."""
+    return [
+        a.get('author', {}).get('display_name', '')
+        for a in (authors_list or [])
+        if a.get('author', {}).get('display_name')
+    ]
+
 def extract_work_id(openalex_url: str) -> str:
     """Extract work ID from OpenAlex URL"""
     if not openalex_url:
@@ -85,10 +93,12 @@ def create_work_node(work: Dict, node_type: str) -> Dict:
     if primary_location and primary_location.get('source'):
         venue = primary_location['source'].get('display_name')
 
+    authorships = work.get('authorships', [])
     return {
         'id': work_id,
         'title': work.get('title', 'Unknown Title'),
-        'authors': format_authors(work.get('authorships', [])),
+        'authors': format_authors(authorships),
+        'authors_list': extract_authors_list(authorships),
         'year': work.get('publication_year'),
         'date': work.get('publication_date'),
         'cited_by_count': work.get('cited_by_count', 0),
@@ -344,7 +354,11 @@ def main():
     author_info = {
         'name': author_data.get('display_name', 'Unknown'),
         'openalex_id': AUTHOR_ID,
-        'institution': author_data.get('last_known_institution', {}).get('display_name') if author_data.get('last_known_institution') else 'Unknown',
+        'institution': (
+            (author_data.get('last_known_institutions') or [{}])[0].get('display_name')
+            or (author_data.get('last_known_institution') or {}).get('display_name')
+            or 'Unknown'
+        ),
         'total_citations': author_data.get('cited_by_count', 0),
         'h_index': author_data.get('h_index', 0),
         'works_count': author_data.get('works_count', 0)
