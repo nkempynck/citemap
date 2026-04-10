@@ -97,6 +97,9 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
     <button class="btn btn-secondary" onclick="reset()">Search again</button>
   </div>
   <div class="storage-warn" id="storageWarn"></div>
+  <div id="openNetBtn" style="display:none;margin-top:10px">
+    <button class="btn btn-primary" onclick="window.open('network.html')">Open network.html</button>
+  </div>
 </div>
 
 <script>
@@ -504,9 +507,10 @@ function goToNetwork() {
     localStorage.setItem('citemap_data', JSON.stringify(resultData));
     window.location.href = 'network.html';
   } catch (e) {
-    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON and load it in network.html via "Load JSON".';
+    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON, then open network.html and use "Load JSON".';
     $('viewNetBtn').style.display = 'none';
     $('viewPortalBtn').style.display = 'none';
+    $('openNetBtn').style.display = '';
   }
 }
 
@@ -515,9 +519,10 @@ function goToPortal() {
     localStorage.setItem('citemap_data', JSON.stringify(resultData));
     window.location.href = 'portal.html';
   } catch (e) {
-    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON and load it in network.html via "Load JSON".';
+    $('storageWarn').textContent = 'Dataset too large for browser storage. Download the JSON, then open network.html and use "Load JSON".';
     $('viewNetBtn').style.display = 'none';
     $('viewPortalBtn').style.display = 'none';
+    $('openNetBtn').style.display = '';
   }
 }
 
@@ -536,6 +541,7 @@ function reset() {
   $('searchMsg').textContent = ''; $('storageWarn').textContent = '';
   $('viewNetBtn').style.display = '';
   $('viewPortalBtn').style.display = '';
+  $('openNetBtn').style.display = 'none';
   show('viewSearch');
 }
 </script>
