@@ -75,6 +75,7 @@ details[open] .config-summary::before { transform: rotate(90deg); }
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
     <h1 id="title">Citation network</h1>
+    <p id="affiliation" style="font-size:0.8rem;color:var(--text3);margin-bottom:4px;font-weight:300"></p>
     <p class="sub" id="subtitle"></p>
     <p class="intro" id="introText">An interactive map of academic influence. Each node is a paper — size reflects citation count, color reflects how connected it is in the graph. Green nodes are the author's own works. Click any node to see details.</p>
 
@@ -358,6 +359,9 @@ function initGraph() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'grid';
   document.getElementById('title').textContent = DATA.author.name;
+  if (DATA.author.institution && DATA.author.institution !== 'Unknown') {
+    document.getElementById('affiliation').textContent = DATA.author.institution;
+  }
   const authorCount = DATA.nodes.filter(n => n.type === 'author').length;
   document.getElementById('subtitle').textContent =
     authorCount + ' author papers · ' + DATA.nodes.length + ' papers in network · ' + DATA.edges.length + ' citation links';
@@ -422,6 +426,7 @@ function initGraph() {
 }
 
 let selectedAuthorNodeId = null;
+const excludedAuthorIds = new Set();
 
 function renderAuthorPapers() {
   const container = document.getElementById('authorPapersList');
@@ -429,15 +434,56 @@ function renderAuthorPapers() {
     .filter(n => n.type === 'author')
     .sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0));
 
-  container.innerHTML = authorNodes.map(n => `
+  // "Select all / none" header
+  const allChecked = authorNodes.every(n => !excludedAuthorIds.has(n.id));
+  container.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:4px;border-bottom:1px solid var(--bg3)">
+      <input type="checkbox" id="apSelectAll" ${allChecked ? 'checked' : ''} onchange="toggleAllAuthorPapers(this.checked)" style="cursor:pointer">
+      <label for="apSelectAll" style="font-size:0.75rem;color:var(--text3);cursor:pointer;text-transform:uppercase;letter-spacing:0.4px">${allChecked ? 'Deselect all' : 'Select all'}</label>
+    </div>
+  ` + authorNodes.map(n => `
     <div class="author-paper-item" id="apitem-${n.id}"
-      onmouseenter="highlightAuthorPaper('${n.id}', false)"
+      style="${excludedAuthorIds.has(n.id) ? 'opacity:0.4' : ''}"
+      onmouseenter="if(!excludedAuthorIds.has('${n.id}')) highlightAuthorPaper('${n.id}', false)"
       onmouseleave="clearAuthorHighlight()"
       onclick="selectAuthorPaper('${n.id}')">
-      <div>${n.title || 'Untitled'}</div>
-      <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+      <div style="display:flex;align-items:flex-start;gap:8px">
+        <input type="checkbox" ${excludedAuthorIds.has(n.id) ? '' : 'checked'}
+          onclick="event.stopPropagation(); toggleAuthorPaper('${n.id}', this.checked)"
+          style="margin-top:2px;flex-shrink:0;cursor:pointer">
+        <div>
+          <div>${n.title || 'Untitled'}</div>
+          <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+        </div>
+      </div>
     </div>
   `).join('');
+}
+
+function toggleAuthorPaper(nodeId, checked) {
+  if (checked) {
+    excludedAuthorIds.delete(nodeId);
+  } else {
+    excludedAuthorIds.add(nodeId);
+    // Clear selection if we're hiding the selected node
+    if (selectedAuthorNodeId === nodeId) {
+      selectedAuthorNodeId = null;
+    }
+  }
+  renderAuthorPapers();
+  buildNetwork();
+}
+
+function toggleAllAuthorPapers(checked) {
+  const authorNodes = DATA.nodes.filter(n => n.type === 'author');
+  if (checked) {
+    authorNodes.forEach(n => excludedAuthorIds.delete(n.id));
+  } else {
+    authorNodes.forEach(n => excludedAuthorIds.add(n.id));
+    selectedAuthorNodeId = null;
+  }
+  renderAuthorPapers();
+  buildNetwork();
 }
 
 function highlightAuthorPaper(nodeId, keep) {
@@ -547,6 +593,7 @@ function buildNetwork() {
     if (typeFilter === 'author-only' && n.type !== 'author') return;
     if (n.year && (n.year < yearMin || n.year > yearMax)) return;
     if (n.type === 'author' && n.year && (n.year < authorYearMin || n.year > authorYearMax)) return;
+    if (n.type === 'author' && excludedAuthorIds.has(n.id)) return;
     if ((n.cited_by_count || 0) < citeMin && n.type !== 'author') return;
     visibleIds.add(n.id);
   });
@@ -556,7 +603,8 @@ function buildNetwork() {
     DATA.nodes.filter(n => n.type === 'author' && visibleIds.has(n.id)).map(n => n.id)
   );
   const authorYearFiltered = authorYearMin > parseInt(document.getElementById('authorYearMin').min) ||
-                             authorYearMax < parseInt(document.getElementById('authorYearMax').max);
+                             authorYearMax < parseInt(document.getElementById('authorYearMax').max) ||
+                             excludedAuthorIds.size > 0;
   if (authorYearFiltered) {
     const nodeTypeMap = new Map(DATA.nodes.map(n => [n.id, n.type]));
     const connectedToVisibleAuthor = new Set();
