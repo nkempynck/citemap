@@ -327,6 +327,18 @@ def main():
                 edges.add((author_work_id, ref_id))
 
     print(f"Added {len(work_to_refs)} reference relationships")
+
+    # Reclassify mutual nodes a posteriori: a non-author node is mutual if it
+    # both cites an author work (edge: node → author) AND is cited by an author
+    # work (edge: author → node). Derived from edges, not collection order.
+    author_ids = {nid for nid, n in nodes.items() if n['type'] == 'author'}
+    cites_author    = {f for f, t in edges if t in author_ids}
+    cited_by_author = {t for f, t in edges if f in author_ids}
+    mutual_ids = (cites_author & cited_by_author) - author_ids
+    for nid in mutual_ids:
+        nodes[nid]['type'] = 'mutual'
+    print(f"Reclassified {len(mutual_ids)} mutual nodes")
+
     print(f"Final nodes: {len(nodes)}, edges: {len(edges)}")
 
     # Prepare output data

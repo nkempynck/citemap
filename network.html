@@ -208,9 +208,10 @@ details[open] .config-summary::before { transform: rotate(90deg); }
 
 <script>
 let DATA, network, allNodes, allEdges, physicsOn = true, currentScale = 1, maxCitationCount = 1;
-const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', level2: '#534ab7' };
-const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', level2: '#3c3489' };
-const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', level2: '#3c3489' };
+const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', mutual: '#8b5cf6', level2: '#534ab7' };
+const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
+const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
+const SHAPES = { author: 'dot', citing: 'diamond', reference: 'dot', mutual: 'square', level2: 'dot' };
 
 function mergePreprints(data) {
   const titleMap = {};
@@ -229,11 +230,13 @@ function mergePreprints(data) {
         existing.date = n.date && existing.date ? (n.date > existing.date ? n.date : existing.date) : (n.date || existing.date);
         existing.year = n.year && existing.year ? Math.max(n.year, existing.year) : (n.year || existing.year);
         if (n.type === 'author') existing.type = 'author';
+        else if (n.type === 'mutual' || existing.type === 'mutual') existing.type = 'mutual';
       } else {
         idRemap[n.id] = existing.id;
         existing.cited_by_count = Math.max(existing.cited_by_count, n.cited_by_count);
         existing.url = existing.url || n.url;
         if (n.type === 'author') existing.type = 'author';
+        else if (n.type === 'mutual' || existing.type === 'mutual') existing.type = 'mutual';
       }
     } else {
       titleMap[key] = { ...n };
@@ -323,6 +326,14 @@ function shortTitle(title, maxLen) {
   return title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
 }
 
+function nodeLabel(n) {
+  const raw = (n.authors || '').split(' et al.')[0].trim();
+  const lastName = raw.split(' ').pop();
+  const suffix = (n.authors || '').includes(' et al.') || raw.includes(',') ? ' et al.' : '';
+  const year = n.year || '';
+  return lastName && year ? `${lastName}${suffix}, ${year}` : lastName || year || shortTitle(n.title, 30);
+}
+
 function initGraph() {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'grid';
@@ -385,14 +396,22 @@ function buildNetwork() {
         <div style="width:14px;height:14px;border-radius:50%;background:#27ae60;border:2px solid #1a7a42;flex-shrink:0"></div>
         Author's works (separate scale)
       </div>
-      <div style="margin-top:6px;font-size:0.78rem;color:var(--text3)">Other nodes colored by connection count. Author papers fixed green — their degree is structurally inflated by the data.</div>`;
+      <div style="margin-top:8px;font-size:0.78rem;color:var(--text3);font-weight:500;margin-bottom:4px">Shape = relationship</div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-size:0.8rem">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('author')" onmouseleave="clearHighlight()"><div style="width:14px;height:14px;border-radius:50%;background:#27ae60;border:2px solid #1a7a42;flex-shrink:0"></div> Author's works</div>
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('citing')" onmouseleave="clearHighlight()"><div style="width:12px;height:12px;background:#aaa;transform:rotate(45deg);flex-shrink:0"></div> Citing paper</div>
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('reference')" onmouseleave="clearHighlight()"><div style="width:12px;height:12px;border-radius:50%;background:#aaa;flex-shrink:0"></div> Reference</div>
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('mutual')" onmouseleave="clearHighlight()"><div style="width:12px;height:12px;background:#aaa;flex-shrink:0"></div> Both (mutual)</div>
+      </div>
+      <div style="margin-top:6px;font-size:0.75rem;color:var(--text3)">Hover a type to highlight. Color = connectivity.</div>`;
   } else {
     legendEl.innerHTML = `
-      <div class="legend-item"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#185fa5"></div> References</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
-      <div style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Labels always show for the author's papers. Other labels appear progressively as you zoom in.</div>`;
+      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('author')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
+      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('citing')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
+      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('reference')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#185fa5"></div> References</div>
+      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('mutual')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#8b5cf6"></div> Mutual (citing + reference)</div>
+      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('level2')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
+      <div style="margin-top:8px;font-size:0.75rem;color:var(--text3)">Hover a type to highlight. Labels always show for the author's papers.</div>`;
   }
 
   // Pass 1: determine which nodes are visible
@@ -445,13 +464,14 @@ function buildNetwork() {
     nodes.push({
       id: n.id,
       label: '',
-      hiddenLabel: shortTitle(n.title, 42),
+      hiddenLabel: nodeLabel(n),
       title: (n.title || '') + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0) + '\nConnections: ' + degree,
+      shape: SHAPES[n.type] || 'dot',
       size: sz,
       color: { background: bgColor, border: borderColor },
       borderWidth: isAuthor ? 3 : 1,
       font: { color: fontColor, size: 11, face: 'Outfit', strokeWidth: 3, strokeColor: '#fafaf7' },
-      _data: { ...n, degree },
+      _data: { ...n, degree, origColor: { bg: bgColor, border: borderColor } },
     });
   });
 
@@ -553,7 +573,7 @@ function applyDynamicLabels() {
     const fontColor = colorMode === 'heatmap' ? '#1c1c1a' : FONT_COLORS[node._data.type];
     const update = {
       id: node.id,
-      label: showLabel ? shortTitle(node._data.title, scale > 1.6 ? 70 : 42) : '',
+      label: showLabel ? nodeLabel(node._data) : '',
       font: {
         color: fontColor,
         size: nodeFontSize,
@@ -563,6 +583,33 @@ function applyDynamicLabels() {
       }
     };
     updates.push(update);
+  });
+  allNodes.update(updates);
+}
+
+function highlightByType(type) {
+  if (!allNodes) return;
+  const updates = [];
+  allNodes.forEach(node => {
+    const match = node._data.type === type;
+    updates.push({
+      id: node.id,
+      color: match
+        ? { background: node._data.origColor.bg, border: node._data.origColor.border }
+        : { background: 'rgba(210,208,200,0.25)', border: 'rgba(210,208,200,0.25)' }
+    });
+  });
+  allNodes.update(updates);
+}
+
+function clearHighlight() {
+  if (!allNodes) return;
+  const updates = [];
+  allNodes.forEach(node => {
+    updates.push({
+      id: node.id,
+      color: { background: node._data.origColor.bg, border: node._data.origColor.border }
+    });
   });
   allNodes.update(updates);
 }
