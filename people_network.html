@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Author Influence Network</title>
+<meta name="description" content="Interactive author influence network — explore how researchers collaborate and cross-cite each other.">
+<meta property="og:title" content="Author Influence Network">
+<meta property="og:type" content="website">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+:root {
+  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
+  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
+  --accent: #2d6a4f; --accent-dark: #1b4332;
+  --coral: #d85a30; --blue: #185fa5; --purple: #534ab7;
+  --sans: 'Outfit', system-ui, sans-serif;
+  --serif: 'Source Serif 4', Georgia, serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); }
+.loading { display: flex; justify-content: center; align-items: center; height: 100vh; color: var(--text2); flex-direction: column; gap: 8px; }
+.layout { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+.sidebar { background: white; border-right: 1px solid rgba(0,0,0,0.08); overflow-y: auto; padding: 24px; }
+.sidebar h1 { font-family: var(--serif); font-size: 1.3rem; font-weight: 600; margin-bottom: 4px; }
+.sidebar .sub { font-size: 0.82rem; color: var(--text2); margin-bottom: 24px; font-weight: 300; }
+.control-group { margin-bottom: 18px; }
+.control-group label { display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); margin-bottom: 6px; font-weight: 500; }
+.control-group select, .control-group input[type=range] { width: 100%; font-family: var(--sans); }
+.control-group select { padding: 6px 8px; border: 1px solid var(--bg3); border-radius: 6px; font-size: 0.88rem; background: var(--bg); }
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input { flex: 1; }
+.range-val { font-family: var(--serif); font-weight: 600; font-size: 0.9rem; min-width: 34px; text-align: right; }
+.control-help { font-size: 0.75rem; color: var(--text3); margin-top: 5px; line-height: 1.35; }
+.legend { margin-top: 24px; }
+.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
+.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.node-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bg3); display: none; }
+.node-info h3 { font-family: var(--serif); font-size: 1rem; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
+.node-info p { font-size: 0.82rem; color: var(--text2); margin-bottom: 4px; }
+.node-info a { color: var(--blue); text-decoration: none; font-size: 0.82rem; }
+.node-info a:hover { text-decoration: underline; }
+.paper-list { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+.paper-item { padding: 5px 8px; border-radius: 5px; font-size: 0.78rem; cursor: pointer; line-height: 1.35; color: var(--text2); transition: background 0.1s; }
+.paper-item:hover { background: var(--bg2); color: var(--text); }
+.paper-item-year { font-size: 0.72rem; color: var(--text3); }
+.graph-container { position: relative; }
+#network { width: 100%; height: 100vh; }
+.graph-controls { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; }
+.graph-btn { padding: 6px 12px; border: 1px solid var(--bg3); border-radius: 6px; background: white; cursor: pointer; font-family: var(--sans); font-size: 0.82rem; }
+.graph-btn:hover { background: var(--bg2); }
+.graph-stats { position: absolute; bottom: 16px; left: 16px; font-size: 0.78rem; color: var(--text3); background: rgba(250,250,247,0.92); padding: 6px 12px; border-radius: 6px; }
+.config-summary { cursor: pointer; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; padding: 6px 0; margin-bottom: 6px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
+.config-summary::-webkit-details-marker { display: none; }
+.config-summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+details[open] .config-summary::before { transform: rotate(90deg); }
+.intro { font-size: 0.82rem; color: var(--text2); line-height: 1.55; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--bg3); }
+.mobile-wall { display: none; }
+.tab-bar { display: flex; border: 1px solid var(--bg3); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+.tab-btn { flex: 1; padding: 6px 4px; font-size: 0.78rem; font-family: var(--sans); background: none; border: none; border-right: 1px solid var(--bg3); cursor: pointer; color: var(--text3); font-weight: 400; transition: background 0.1s; }
+.tab-btn:last-child { border-right: none; }
+.tab-btn:hover { background: var(--bg2); }
+.tab-btn.active { background: var(--bg2); color: var(--text); font-weight: 500; }
+@media (max-width: 720px) {
+  .mobile-wall { display: flex; position: fixed; inset: 0; background: var(--bg); z-index: 999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px 32px; gap: 14px; }
+  .layout { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="mobile-wall">
+  <p style="font-family:var(--serif);font-size:1.3rem;font-weight:600">Best viewed on desktop</p>
+  <p style="max-width:280px;color:var(--text2);line-height:1.55">This interactive network is designed for larger screens. Open it on a laptop or desktop for the full experience.</p>
+</div>
+<div class="loading" id="loading">
+  <span>Loading author network...</span>
+  <span id="loadingDetail" style="font-size:0.78rem;color:var(--text3)"></span>
+</div>
+<div class="layout" id="app" style="display:none">
+  <div class="sidebar">
+    <h1><a id="title" href="#" target="_blank" style="color:inherit;text-decoration:none">Author network</a></h1>
+    <p class="sub" id="subtitle"></p>
+    <p class="intro">Each node is a researcher. Size reflects their presence in the citation network. Click a node to explore their papers and connections.</p>
+
+    <details open>
+    <summary class="config-summary">Edge mode</summary>
+    <div class="tab-bar" style="margin-top:8px">
+      <button class="tab-btn" id="modeCoauth" onclick="setEdgeMode('coauthor')">Co-authorship</button>
+      <button class="tab-btn" id="modeCite" onclick="setEdgeMode('citation')">Citation influence</button>
+      <button class="tab-btn active" id="modeBoth" onclick="setEdgeMode('both')">Both</button>
+    </div>
+    <div id="edgeModeHelp" class="control-help" style="margin-bottom:0">
+      Green = co-authorship. Blue arrows = citation influence (A → B means A's work is cited by B).
+    </div>
+    </details>
+
+    <details id="configPanel" open style="margin-top:18px">
+    <summary class="config-summary">Options</summary>
+
+    <div class="control-group">
+      <label>Min papers in network</label>
+      <div class="range-row">
+        <input type="range" id="minPapers" min="1" max="20" value="2" step="1">
+        <span class="range-val" id="minPapersVal">2</span>
+      </div>
+      <div class="control-help">Only consider authors appearing in at least this many papers.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Min connections (edges)</label>
+      <div class="range-row">
+        <input type="range" id="minEdges" min="1" max="20" value="10" step="1">
+        <span class="range-val" id="minEdgesVal">10</span>
+      </div>
+      <div class="control-help">Only show authors with at least this many connections in the current graph.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Node size by</label>
+      <select id="sizeMode">
+        <option value="papers" selected>Paper count</option>
+        <option value="citations">Total citations</option>
+        <option value="uniform">Uniform</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label>Node size scale</label>
+      <div class="range-row">
+        <input type="range" id="sizeScale" min="0.3" max="4" value="1.5" step="0.05">
+        <span class="range-val" id="sizeScaleVal">1.5</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>First/last N authors per paper</label>
+      <div class="range-row">
+        <input type="range" id="authorN" min="0" max="10" value="10" step="1">
+        <span class="range-val" id="authorNVal">10</span>
+      </div>
+      <div class="control-help">0 = all authors. N > 0 keeps only the first N and last N authors per paper (lead author + PI convention), reducing clutter from large consortium papers.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Max edge weight shown</label>
+      <div class="range-row">
+        <input type="range" id="maxEdgeWeight" min="1" max="20" value="8" step="1">
+        <span class="range-val" id="maxEdgeWeightVal">8</span>
+      </div>
+      <div class="control-help">Caps edge thickness to prevent a few heavy edges from dominating.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Edge opacity</label>
+      <div class="range-row">
+        <input type="range" id="edgeOpacity" min="0.005" max="0.6" value="0.015" step="0.005">
+        <span class="range-val" id="edgeOpacityVal">0.015</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Show labels for top N authors</label>
+      <div class="range-row">
+        <input type="range" id="labelTop" min="0" max="100" value="30" step="1">
+        <span class="range-val" id="labelTopVal">30</span>
+      </div>
+    </div>
+
+    </details>
+
+    <div class="legend">
+      <div style="font-size:0.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:500;margin-bottom:8px">Shape <span style="font-size:0.7rem;text-transform:none;letter-spacing:0;font-weight:400">(hover to highlight)</span></div>
+      <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('focal')" onmouseleave="highlightCategory(null)"><svg width="14" height="14" viewBox="-7 -7 14 14"><polygon points="0,-6 1.8,-2 6,-2 2.6,1 3.7,6 0,3.2 -3.7,6 -2.6,1 -6,-2 -1.8,-2" fill="#aaa"/></svg> Focal author</div>
+      <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('coauthor')" onmouseleave="highlightCategory(null)"><svg width="14" height="14" viewBox="-7 -7 14 14"><rect x="-5" y="-5" width="10" height="10" fill="#aaa"/></svg> Direct co-author</div>
+      <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('mutual')" onmouseleave="highlightCategory(null)" title="Both cites the focal author and is cited by them"><svg width="14" height="14" viewBox="-7 -7 14 14"><polygon points="0,-6 5.2,-3 5.2,3 0,6 -5.2,3 -5.2,-3" fill="#aaa"/></svg> Mutual citer</div>
+      <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('citing')" onmouseleave="highlightCategory(null)"><svg width="14" height="14" viewBox="-7 -7 14 14"><polygon points="0,-6 6,0 0,6 -6,0" fill="#aaa"/></svg> Citing author</div>
+      <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('reference')" onmouseleave="highlightCategory(null)"><svg width="14" height="14" viewBox="-7 -7 14 14"><circle cx="0" cy="0" r="5" fill="#aaa"/></svg> Reference author</div>
+      <div style="margin-top:12px;font-size:0.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:500;margin-bottom:6px">Color — connections</div>
+      <div style="height:10px;border-radius:4px;background:linear-gradient(to right,rgb(135,206,235),rgb(214,48,30));margin-bottom:4px"></div>
+      <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text3)"><span>few</span><span>many</span></div>
+    </div>
+
+    <div class="node-info" id="nodeInfo">
+      <h3 id="infoName"></h3>
+      <p id="infoMeta"></p>
+      <div id="infoPapers" class="paper-list"></div>
+    </div>
+  </div>
+
+  <div class="graph-container">
+    <div id="network"></div>
+    <div class="graph-controls">
+      <button class="graph-btn" onclick="fitGraph()">Fit</button>
+      <button class="graph-btn" onclick="togglePhysics()">Physics</button>
+      <button class="graph-btn" onclick="window.location.href='network.html'">← Papers graph</button>
+    </div>
+    <div class="graph-stats" id="graphStats"></div>
+  </div>
+</div>
+
+<script>
+// vis.Network instance — use "vnet" to avoid collision with <div id="network">
+let DATA, vnet, allNodes, allEdges, physicsOn = true;
+let currentEdgeMode = 'both';
+let focalAuthorName = '';
+let directCoauthors = new Set(); // co-authored at least one focal-author paper
+let mutualAuthors = new Set();   // appear on both citing-direction and reference-direction papers
+let referenceAuthors = new Set(); // focal cites their work (one-way)
+let citingAuthors = new Set();    // their work cites focal (one-way)
+let lastDegreeMap = {}; // degree per node from most recent buildGraph call
+
+// Per-author data built once from DATA
+let peopleMap = {}; // name -> { papers: [...], totalCitations, paperCount }
+// Edge maps built once from DATA
+let coauthorEdges = {}; // "A|||B" (sorted) -> shared paper count
+let citationEdges = {}; // "influencer|||influenced" -> citation count
+
+// Only cap citation edge expansion (O(M×N) per link is the real perf risk).
+const MAX_AUTHORS_FOR_CITE_PAIRS = 15;
+
+function heatmapColor(degree, maxDeg) {
+  const t = maxDeg > 0 ? Math.min(1, Math.asinh(degree / 3) / Math.asinh(maxDeg / 3)) : 0;
+  const r = Math.round(135 + (214 - 135) * t);
+  const g = Math.round(206 + (48  - 206) * t);
+  const b = Math.round(235 + (30  - 235) * t);
+  return {
+    bg:     `rgb(${r},${g},${b})`,
+    border: `rgb(${Math.round(r*0.68)},${Math.round(g*0.68)},${Math.round(b*0.68)})`,
+    font:   `rgb(${Math.round(r*0.45)},${Math.round(g*0.45)},${Math.round(b*0.45)})`,
+  };
+}
+
+// Returns the subset of authors to consider for a paper given the first/last-N filter
+function eligibleAuthorsForPaper(authors, n) {
+  if (n === 0 || authors.length <= n * 2) return authors;
+  const set = new Set([...authors.slice(0, n), ...authors.slice(-n)]);
+  return authors.filter(a => set.has(a)); // preserve order, deduplicate
+}
+
+function buildEdges(n) {
+  coauthorEdges = {};
+  citationEdges = {};
+
+  setStatus('Building co-authorship edges…');
+  DATA.nodes.forEach(paper => {
+    const authors = eligibleAuthorsForPaper(paper.authors_list || [], n);
+    for (let i = 0; i < authors.length; i++) {
+      for (let j = i + 1; j < authors.length; j++) {
+        const key = authors[i] < authors[j]
+          ? authors[i] + '|||' + authors[j]
+          : authors[j] + '|||' + authors[i];
+        coauthorEdges[key] = (coauthorEdges[key] || 0) + 1;
+      }
+    }
+  });
+
+  setStatus('Building citation influence edges…');
+  const paperToAuthors = {};
+  DATA.nodes.forEach(p => {
+    paperToAuthors[p.id] = eligibleAuthorsForPaper(p.authors_list || [], n);
+  });
+  DATA.edges.forEach(e => {
+    const from = paperToAuthors[e.from] || [];
+    const to   = paperToAuthors[e.to]   || [];
+    if (from.length > MAX_AUTHORS_FOR_CITE_PAIRS || to.length > MAX_AUTHORS_FOR_CITE_PAIRS) return;
+    // cited author influences citing author: direction to → from
+    to.forEach(cited => {
+      from.forEach(citing => {
+        if (cited === citing) return;
+        const key = cited + '|||' + citing;
+        citationEdges[key] = (citationEdges[key] || 0) + 1;
+      });
+    });
+  });
+  setStatus('');
+}
+
+function getNodeShape(name) {
+  if (name === focalAuthorName) return 'star';
+  if (directCoauthors.has(name)) return 'square';
+  if (mutualAuthors.has(name))   return 'hexagon';
+  if (citingAuthors.has(name))   return 'diamond';
+  return 'dot'; // reference authors and other
+}
+
+function setStatus(msg) {
+  const el = document.getElementById('loadingDetail');
+  if (el) el.textContent = msg;
+}
+
+function buildPeopleData(data) {
+  peopleMap = {};
+  coauthorEdges = {};
+  citationEdges = {};
+  focalAuthorName = data.author.name;
+
+  setStatus('Collecting authors…');
+
+  // Collect per-author paper lists
+  data.nodes.forEach(paper => {
+    (paper.authors_list || []).forEach(author => {
+      if (!peopleMap[author]) {
+        peopleMap[author] = { papers: [], totalCitations: 0, paperCount: 0 };
+      }
+      peopleMap[author].papers.push({
+        id: paper.id, title: paper.title, type: paper.type,
+        year: paper.year, cited_by_count: paper.cited_by_count || 0, venue: paper.venue,
+      });
+      peopleMap[author].totalCitations += paper.cited_by_count || 0;
+      peopleMap[author].paperCount += 1;
+    });
+  });
+
+  // Direct co-authors = appear in any author-type paper with the focal researcher
+  directCoauthors = new Set();
+  data.nodes
+    .filter(p => p.type === 'author')
+    .forEach(paper => {
+      (paper.authors_list || []).forEach(a => {
+        if (a !== focalAuthorName) directCoauthors.add(a);
+      });
+    });
+
+  // For every non-focal, non-coauthor author, collect the paper types they appear on.
+  // Mutual papers count as both directions (they both cite and are cited by focal).
+  const authorPaperTypes = {};
+  data.nodes.forEach(paper => {
+    (paper.authors_list || []).forEach(a => {
+      if (a === focalAuthorName || directCoauthors.has(a)) return;
+      (authorPaperTypes[a] = authorPaperTypes[a] || new Set()).add(paper.type);
+    });
+  });
+
+  mutualAuthors = new Set();
+  citingAuthors = new Set();
+  referenceAuthors = new Set();
+  Object.entries(authorPaperTypes).forEach(([a, types]) => {
+    const cites = types.has('citing') || types.has('mutual');
+    const cited = types.has('reference') || types.has('mutual');
+    if (cites && cited) mutualAuthors.add(a);
+    else if (cites) citingAuthors.add(a);
+    else if (cited) referenceAuthors.add(a);
+  });
+
+  setStatus('');
+}
+
+function nodeSize(person, scale, mode) {
+  if (mode === 'uniform') return 8 + 2 * scale;
+  // Cap at 40px so large-citation nodes don't overwhelm the layout
+  if (mode === 'citations') return Math.min(40, Math.max(5, 5 + Math.asinh(person.totalCitations / 40) * 3.5 * scale));
+  return Math.min(40, Math.max(5, 5 + Math.asinh(person.paperCount / 2) * 4 * scale));
+}
+
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+// vis-network renders string titles as plain text (HTML tags show literally).
+// Wrap as a DOM element so the bold name renders.
+function makeTooltip(name, body) {
+  const el = document.createElement('div');
+  const b = document.createElement('b');
+  b.textContent = name;
+  el.appendChild(b);
+  el.appendChild(document.createElement('br'));
+  el.appendChild(document.createTextNode(body));
+  return el;
+}
+
+function highlightCategory(category) {
+  if (!allNodes) return;
+  const nodes = allNodes.get();
+  const maxDeg = Math.max(1, ...nodes.map(n => n._deg || 0));
+  allNodes.update(nodes.map(n => {
+    const match = category === null
+      || (category === 'focal'     && n.id === focalAuthorName)
+      || (category === 'coauthor'  && directCoauthors.has(n.id))
+      || (category === 'mutual'    && mutualAuthors.has(n.id))
+      || (category === 'citing'    && citingAuthors.has(n.id))
+      || (category === 'reference' && referenceAuthors.has(n.id));
+    if (match) {
+      const c = heatmapColor(n._deg || 0, maxDeg);
+      return { id: n.id, color: { background: c.bg, border: c.border }, font: { color: c.font } };
+    }
+    return {
+      id: n.id,
+      color: { background: 'rgba(210,208,200,0.12)', border: 'rgba(210,208,200,0.12)' },
+      font:  { color: 'rgba(180,178,170,0.25)' },
+    };
+  }));
+}
+
+let _lastAuthorN = -1; // sentinel so first call always builds edges
+
+function buildGraph() {
+  const minPapers  = parseInt(document.getElementById('minPapers').value)    || 1;
+  const minEdges   = parseInt(document.getElementById('minEdges').value)     || 1;
+  const authorN    = parseInt(document.getElementById('authorN').value)      || 0;
+  const sizeMode   = document.getElementById('sizeMode').value;
+  const scale      = parseFloat(document.getElementById('sizeScale').value)  || 1.5;
+  const maxEdgeW   = parseInt(document.getElementById('maxEdgeWeight').value) || 8;
+  const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value) || 0.015;
+  const labelTop   = parseInt(document.getElementById('labelTop').value)     || 30;
+
+  // Rebuild edge maps only when the author-position filter changes
+  if (authorN !== _lastAuthorN) { buildEdges(authorN); _lastAuthorN = authorN; }
+
+  // Step 1: filter by min papers
+  const candidates = new Set(
+    Object.keys(peopleMap).filter(n => peopleMap[n].paperCount >= minPapers)
+  );
+
+  // Step 2: collect all raw edges for candidates
+  let rawEdges = [];
+  if (currentEdgeMode === 'coauthor' || currentEdgeMode === 'both') {
+    Object.entries(coauthorEdges).forEach(([key, count]) => {
+      const [a, b] = key.split('|||');
+      if (candidates.has(a) && candidates.has(b)) rawEdges.push({ from: a, to: b, weight: count, type: 'coauthor' });
+    });
+  }
+  if (currentEdgeMode === 'citation' || currentEdgeMode === 'both') {
+    Object.entries(citationEdges).forEach(([key, count]) => {
+      const [a, b] = key.split('|||');
+      if (candidates.has(a) && candidates.has(b)) rawEdges.push({ from: a, to: b, weight: count, type: 'citation' });
+    });
+  }
+
+  // Step 3: count degree per author (undirected: each edge contributes to both endpoints)
+  const degree = {};
+  rawEdges.forEach(e => {
+    degree[e.from] = (degree[e.from] || 0) + 1;
+    degree[e.to]   = (degree[e.to]   || 0) + 1;
+  });
+  // Always keep focal author regardless of degree
+  const eligible = new Set(
+    Object.keys(degree).filter(n => degree[n] >= minEdges || n === focalAuthorName)
+  );
+  lastDegreeMap = degree;
+
+  // Step 4: filter edges to only those between eligible nodes
+  rawEdges = rawEdges.filter(e => eligible.has(e.from) && eligible.has(e.to));
+
+  // Deduplicate co-author edges (undirected); citation edges stay directed
+  if (currentEdgeMode === 'both') {
+    const seen = new Set();
+    rawEdges = rawEdges.filter(e => {
+      const key = [e.from, e.to].sort().join('|||') + '|' + e.type;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  // Compute heatmap max from final eligible set
+  const maxDeg = Math.max(1, ...Object.entries(degree).filter(([n]) => eligible.has(n)).map(([,d]) => d));
+
+  // Sort eligible nodes for label assignment (by degree desc, tiebreak by papers)
+  const sortedEligible = [...eligible].sort((a, b) =>
+    (degree[b] || 0) - (degree[a] || 0) || peopleMap[b].paperCount - peopleMap[a].paperCount
+  );
+  const labelSet = new Set(sortedEligible.slice(0, labelTop));
+  labelSet.add(focalAuthorName);
+
+  const visNodes = sortedEligible.map(name => {
+    const person = peopleMap[name];
+    const deg  = degree[name] || 0;
+    const c    = heatmapColor(deg, maxDeg);
+    const sz   = nodeSize(person, scale, sizeMode);
+    const shape = getNodeShape(name);
+    return {
+      id: name,
+      label: labelSet.has(name) ? name.split(' ').slice(-1)[0] : undefined,
+      title: makeTooltip(name, `${person.paperCount} paper${person.paperCount !== 1 ? 's' : ''} · ${person.totalCitations} citations · ${deg} connection${deg !== 1 ? 's' : ''}`),
+      size: sz,
+      shape,
+      color: { background: c.bg, border: c.border },
+      font: { color: c.font, size: labelSet.has(name) ? 11 : 0, face: 'Outfit, system-ui, sans-serif' },
+      borderWidth: shape === 'star' ? 3 : 1.5,
+      _deg: deg,
+      _maxDeg: maxDeg,
+    };
+  });
+
+  // Build a size lookup so edge lengths can account for node radii
+  const nodeSizeMap = {};
+  visNodes.forEach(n => { nodeSizeMap[n.id] = n.size || 8; });
+
+  // Edge length = degree-based spread + clearance for the two endpoint node radii.
+  // Hub pairs get long springs (pushed apart); peripheral pairs stay short.
+  // The size bonus ensures large citation nodes never overlap their neighbors.
+  const visEdges = rawEdges.map((e, i) => {
+    const w = Math.min(e.weight, maxEdgeW);
+    const isCite = e.type === 'citation';
+    const avgDeg = ((degree[e.from] || 0) + (degree[e.to] || 0)) / 2;
+    const sizeBonus = (nodeSizeMap[e.from] + nodeSizeMap[e.to]) * 3;
+    const edgeLen = Math.round(80 + (avgDeg / maxDeg) * 520 + sizeBonus);
+    return {
+      id: i,
+      from: e.from,
+      to: e.to,
+      length: edgeLen,
+      width: 0.5 + w * 0.4,
+      color: { color: hexToRgba(isCite ? '#185fa5' : '#2d6a4f', edgeOpacity), highlight: isCite ? '#185fa5' : '#2d6a4f', hover: '#888' },
+      arrows: isCite ? { to: { enabled: true, scaleFactor: 0.4 } } : undefined,
+      title: e.type === 'coauthor'
+        ? `${e.weight} shared paper${e.weight !== 1 ? 's' : ''}`
+        : `${e.weight} citation link${e.weight !== 1 ? 's' : ''}`,
+    };
+  });
+
+  const container = document.getElementById('network');
+  allNodes = new vis.DataSet(visNodes);
+  allEdges = new vis.DataSet(visEdges);
+
+  const options = {
+    nodes: { scaling: { min: 4, max: 40 } },
+    edges: { smooth: { type: 'continuous', roundness: 0.2 } },
+    physics: {
+      enabled: physicsOn,
+      barnesHut: {
+        gravitationalConstant: -25000,
+        centralGravity: 0.015,
+        springLength: 900,
+        springConstant: 0.003,
+        damping: 0.45,
+        avoidOverlap: 1,
+      },
+      maxVelocity: 20,
+      minVelocity: 0.2,
+      solver: 'barnesHut',
+      stabilization: { iterations: 300, updateInterval: 20 },
+    },
+    interaction: { hover: true, tooltipDelay: 150 },
+  };
+
+  if (vnet) {
+    vnet.setData({ nodes: allNodes, edges: allEdges });
+    vnet.setOptions(options);
+  } else {
+    vnet = new vis.Network(container, { nodes: allNodes, edges: allEdges }, options);
+    vnet.on('click', params => {
+      if (params.nodes.length > 0) showPersonInfo(params.nodes[0]);
+      else hidePersonInfo();
+    });
+  }
+
+  document.getElementById('graphStats').textContent =
+    visNodes.length + ' authors · ' + visEdges.length + ' connections';
+}
+
+function showPersonInfo(name) {
+  const person = peopleMap[name];
+  if (!person) return;
+  document.getElementById('nodeInfo').style.display = 'block';
+  document.getElementById('infoName').textContent = name;
+  const role = name === focalAuthorName ? 'Focal author'
+    : directCoauthors.has(name) ? 'Direct co-author'
+    : mutualAuthors.has(name) ? 'Mutual citer'
+    : citingAuthors.has(name) ? 'Citing author'
+    : referenceAuthors.has(name) ? 'Reference author'
+    : 'Author in network';
+  document.getElementById('infoMeta').textContent =
+    role + ' · ' + person.paperCount + ' paper' + (person.paperCount !== 1 ? 's' : '') + ' · ' + person.totalCitations + ' total citations';
+
+  const paperList = document.getElementById('infoPapers');
+  paperList.innerHTML = '';
+  const sorted = [...person.papers].sort((a, b) => (b.cited_by_count || 0) - (a.cited_by_count || 0));
+  sorted.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'paper-item';
+    item.innerHTML = `<span>${p.title || p.id}</span><br><span class="paper-item-year">${p.year || ''}${p.venue ? ' · ' + p.venue : ''} · ${p.cited_by_count} citations</span>`;
+    item.onclick = () => {
+      sessionStorage.setItem('highlight_paper', p.id);
+      window.location.href = 'network.html';
+    };
+    paperList.appendChild(item);
+  });
+
+  // Dim non-neighbors
+  const connectedSet = new Set([name]);
+  allEdges.get().forEach(e => {
+    if (e.from === name) connectedSet.add(e.to);
+    if (e.to === name) connectedSet.add(e.from);
+  });
+  allNodes.update(allNodes.get().map(n => {
+    if (connectedSet.has(n.id)) return { id: n.id }; // restore original colors
+    return {
+      id: n.id,
+      color: { background: 'rgba(210,208,200,0.18)', border: 'rgba(210,208,200,0.18)' },
+      font: { color: 'rgba(180,178,170,0.35)' },
+    };
+  }));
+}
+
+function hidePersonInfo() {
+  document.getElementById('nodeInfo').style.display = 'none';
+  // Restore each node's heatmap color from stored degree
+  const maxDeg = Math.max(1, ...allNodes.get().map(n => n._deg || 0));
+  allNodes.update(allNodes.get().map(n => {
+    const c = heatmapColor(n._deg || 0, maxDeg);
+    return { id: n.id, color: { background: c.bg, border: c.border }, font: { color: c.font } };
+  }));
+}
+
+function setEdgeMode(mode) {
+  currentEdgeMode = mode;
+  const modeIds = { coauthor: 'modeCoauth', citation: 'modeCite', both: 'modeBoth' };
+  Object.entries(modeIds).forEach(([m, id]) => {
+    document.getElementById(id).classList.toggle('active', m === mode);
+  });
+  const helpText = {
+    coauthor: 'Edges connect authors who appear together on the same paper.',
+    citation:  'Directed edges: A → B means A\'s work is cited by B (A influences B). Arrow points toward the influenced author.',
+    both:      'Both co-authorship (green) and citation influence (blue) edges are shown.',
+  };
+  document.getElementById('edgeModeHelp').textContent = helpText[mode];
+  buildGraph();
+}
+
+function fitGraph() { if (vnet) vnet.fit({ animation: true }); }
+
+function togglePhysics() {
+  physicsOn = !physicsOn;
+  if (vnet) vnet.setOptions({ physics: { enabled: physicsOn } });
+}
+
+function initGraph() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+
+  const titleEl = document.getElementById('title');
+  titleEl.textContent = DATA.author.name;
+  if (DATA.author.openalex_id) {
+    titleEl.href = 'https://openalex.org/' + DATA.author.openalex_id;
+    titleEl.title = 'View on OpenAlex';
+    titleEl.style.textDecoration = 'underline dotted';
+    titleEl.style.textUnderlineOffset = '3px';
+  }
+  document.title = DATA.author.name + ' — Author Network';
+
+  buildPeopleData(DATA);
+
+  const totalAuthors = Object.keys(peopleMap).length;
+  document.getElementById('subtitle').textContent =
+    totalAuthors + ' unique authors · ' + DATA.nodes.length + ' papers · ' + DATA.edges.length + ' citation links';
+
+  const maxPapers = Math.max(...Object.values(peopleMap).map(p => p.paperCount));
+  document.getElementById('minPapers').max = Math.min(maxPapers, 30);
+
+  requestAnimationFrame(buildGraph);
+
+  document.getElementById('sizeMode').addEventListener('change', buildGraph);
+  ['minEdges','minPapers','sizeScale','maxEdgeWeight','edgeOpacity','labelTop','authorN'].forEach(id => {
+    const el  = document.getElementById(id);
+    const val = document.getElementById(id + 'Val');
+    el.addEventListener('input', e => {
+      if (val) {
+        // authorN: show "all" when 0
+        val.textContent = (id === 'authorN' && e.target.value === '0') ? 'all' : e.target.value;
+      }
+      buildGraph();
+    });
+  });
+}
+
+setTimeout(() => {
+  const stored = localStorage.getItem('citemap_data');
+  if (stored) {
+    try {
+      DATA = JSON.parse(stored);
+      initGraph();
+    } catch (e) {
+      document.getElementById('loading').querySelector('span').textContent = 'Error: ' + e.message;
+    }
+  } else {
+    fetch('citation_data.json')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => { DATA = data; initGraph(); })
+      .catch(e => {
+        const msg = e instanceof SyntaxError
+          ? 'No data found. Open index.html to fetch a citation network first.'
+          : 'Error loading data: ' + e.message;
+        document.getElementById('loading').querySelector('span').textContent = msg;
+      });
+  }
+}, 0);
+</script>
+</body>
+</html>
