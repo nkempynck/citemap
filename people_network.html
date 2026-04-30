@@ -8,64 +8,20 @@
 <meta property="og:title" content="Author Influence Network">
 <meta property="og:type" content="website">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="network.css">
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="graph-utils.js"></script>
 <style>
-:root {
-  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
-  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
-  --accent: #2d6a4f; --accent-dark: #1b4332;
-  --coral: #d85a30; --blue: #185fa5; --purple: #534ab7;
-  --sans: 'Outfit', system-ui, sans-serif;
-  --serif: 'Source Serif 4', Georgia, serif;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: var(--sans); background: var(--bg); color: var(--text); }
-.loading { display: flex; justify-content: center; align-items: center; height: 100vh; color: var(--text2); flex-direction: column; gap: 8px; }
-.layout { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
-.sidebar { background: white; border-right: 1px solid rgba(0,0,0,0.08); overflow-y: auto; padding: 24px; }
-.sidebar h1 { font-family: var(--serif); font-size: 1.3rem; font-weight: 600; margin-bottom: 4px; }
-.sidebar .sub { font-size: 0.82rem; color: var(--text2); margin-bottom: 24px; font-weight: 300; }
-.control-group { margin-bottom: 18px; }
-.control-group label { display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); margin-bottom: 6px; font-weight: 500; }
-.control-group select, .control-group input[type=range] { width: 100%; font-family: var(--sans); }
-.control-group select { padding: 6px 8px; border: 1px solid var(--bg3); border-radius: 6px; font-size: 0.88rem; background: var(--bg); }
-.range-row { display: flex; align-items: center; gap: 8px; }
-.range-row input { flex: 1; }
-.range-val { font-family: var(--serif); font-weight: 600; font-size: 0.9rem; min-width: 34px; text-align: right; }
-.control-help { font-size: 0.75rem; color: var(--text3); margin-top: 5px; line-height: 1.35; }
-.legend { margin-top: 24px; }
-.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
-.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
-.node-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bg3); display: none; }
-.node-info h3 { font-family: var(--serif); font-size: 1rem; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
-.node-info p { font-size: 0.82rem; color: var(--text2); margin-bottom: 4px; }
-.node-info a { color: var(--blue); text-decoration: none; font-size: 0.82rem; }
-.node-info a:hover { text-decoration: underline; }
+:root { --sidebar-width: 320px; }
 .paper-list { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
 .paper-item { padding: 5px 8px; border-radius: 5px; font-size: 0.78rem; cursor: pointer; line-height: 1.35; color: var(--text2); transition: background 0.1s; }
 .paper-item:hover { background: var(--bg2); color: var(--text); }
 .paper-item-year { font-size: 0.72rem; color: var(--text3); }
-.graph-container { position: relative; }
-#network { width: 100%; height: 100vh; }
-.graph-controls { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; }
-.graph-btn { padding: 6px 12px; border: 1px solid var(--bg3); border-radius: 6px; background: white; cursor: pointer; font-family: var(--sans); font-size: 0.82rem; }
-.graph-btn:hover { background: var(--bg2); }
-.graph-stats { position: absolute; bottom: 16px; left: 16px; font-size: 0.78rem; color: var(--text3); background: rgba(250,250,247,0.92); padding: 6px 12px; border-radius: 6px; }
-.config-summary { cursor: pointer; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; padding: 6px 0; margin-bottom: 6px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
-.config-summary::-webkit-details-marker { display: none; }
-.config-summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
-details[open] .config-summary::before { transform: rotate(90deg); }
-.intro { font-size: 0.82rem; color: var(--text2); line-height: 1.55; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--bg3); }
-.mobile-wall { display: none; }
 .tab-bar { display: flex; border: 1px solid var(--bg3); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
 .tab-btn { flex: 1; padding: 6px 4px; font-size: 0.78rem; font-family: var(--sans); background: none; border: none; border-right: 1px solid var(--bg3); cursor: pointer; color: var(--text3); font-weight: 400; transition: background 0.1s; }
 .tab-btn:last-child { border-right: none; }
 .tab-btn:hover { background: var(--bg2); }
 .tab-btn.active { background: var(--bg2); color: var(--text); font-weight: 500; }
-@media (max-width: 720px) {
-  .mobile-wall { display: flex; position: fixed; inset: 0; background: var(--bg); z-index: 999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px 32px; gap: 14px; }
-  .layout { display: none; }
-}
 </style>
 </head>
 <body>
@@ -169,6 +125,60 @@ details[open] .config-summary::before { transform: rotate(90deg); }
 
     </details>
 
+    <details id="physicsPanel" style="margin-top:18px">
+    <summary class="config-summary">Physics</summary>
+
+    <div class="control-group">
+      <label>Repulsion strength</label>
+      <div class="range-row">
+        <input type="range" id="gravConst" min="-80000" max="-500" value="-25000" step="500">
+        <span class="range-val" id="gravConstVal">-25000</span>
+      </div>
+      <div class="control-help">More negative = nodes repel each other more strongly.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Central gravity</label>
+      <div class="range-row">
+        <input type="range" id="centralGravity" min="0" max="0.3" value="0.015" step="0.005">
+        <span class="range-val" id="centralGravityVal">0.015</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Spring length</label>
+      <div class="range-row">
+        <input type="range" id="springLength" min="100" max="2500" value="900" step="20">
+        <span class="range-val" id="springLengthVal">900</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Spring stiffness</label>
+      <div class="range-row">
+        <input type="range" id="springConst" min="0" max="0.05" value="0.003" step="0.001">
+        <span class="range-val" id="springConstVal">0.003</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Damping</label>
+      <div class="range-row">
+        <input type="range" id="damping" min="0.05" max="1" value="0.45" step="0.05">
+        <span class="range-val" id="dampingVal">0.45</span>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>Node spacing (avoid overlap)</label>
+      <div class="range-row">
+        <input type="range" id="avoidOverlap" min="0" max="1" value="1" step="0.05">
+        <span class="range-val" id="avoidOverlapVal">1</span>
+      </div>
+    </div>
+
+    </details>
+
     <div class="legend">
       <div style="font-size:0.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.4px;font-weight:500;margin-bottom:8px">Shape <span style="font-size:0.7rem;text-transform:none;letter-spacing:0;font-weight:400">(hover to highlight)</span></div>
       <div class="legend-item" style="cursor:pointer;border-radius:4px;padding:3px 4px;margin:-3px -4px;transition:background 0.1s" onmouseenter="highlightCategory('focal')" onmouseleave="highlightCategory(null)"><svg width="14" height="14" viewBox="-7 -7 14 14"><polygon points="0,-6 1.8,-2 6,-2 2.6,1 3.7,6 0,3.2 -3.7,6 -2.6,1 -6,-2 -1.8,-2" fill="#aaa"/></svg> Focal author</div>
@@ -218,18 +228,6 @@ let citationEdges = {}; // "influencer|||influenced" -> citation count
 
 // Only cap citation edge expansion (O(M×N) per link is the real perf risk).
 const MAX_AUTHORS_FOR_CITE_PAIRS = 15;
-
-function heatmapColor(degree, maxDeg) {
-  const t = maxDeg > 0 ? Math.min(1, Math.asinh(degree / 3) / Math.asinh(maxDeg / 3)) : 0;
-  const r = Math.round(135 + (214 - 135) * t);
-  const g = Math.round(206 + (48  - 206) * t);
-  const b = Math.round(235 + (30  - 235) * t);
-  return {
-    bg:     `rgb(${r},${g},${b})`,
-    border: `rgb(${Math.round(r*0.68)},${Math.round(g*0.68)},${Math.round(b*0.68)})`,
-    font:   `rgb(${Math.round(r*0.45)},${Math.round(g*0.45)},${Math.round(b*0.45)})`,
-  };
-}
 
 // Returns the subset of authors to consider for a paper given the first/last-N filter
 function eligibleAuthorsForPaper(authors, n) {
@@ -373,7 +371,7 @@ function makeTooltip(name, body) {
 function highlightCategory(category) {
   if (!allNodes) return;
   const nodes = allNodes.get();
-  const maxDeg = Math.max(1, ...nodes.map(n => n._deg || 0));
+  const maxDeg = nodes.length ? (nodes[0]._maxDeg || 1) : 1;
   allNodes.update(nodes.map(n => {
     const match = category === null
       || (category === 'focal'     && n.id === focalAuthorName)
@@ -382,7 +380,7 @@ function highlightCategory(category) {
       || (category === 'citing'    && citingAuthors.has(n.id))
       || (category === 'reference' && referenceAuthors.has(n.id));
     if (match) {
-      const c = heatmapColor(n._deg || 0, maxDeg);
+      const c = heatmapColor(n._deg || 0, maxDeg, 3);
       return { id: n.id, color: { background: c.bg, border: c.border }, font: { color: c.font } };
     }
     return {
@@ -455,7 +453,11 @@ function buildGraph() {
   }
 
   // Compute heatmap max from final eligible set
-  const maxDeg = Math.max(1, ...Object.entries(degree).filter(([n]) => eligible.has(n)).map(([,d]) => d));
+  let maxDeg = 1;
+  for (const n of eligible) {
+    const d = degree[n] || 0;
+    if (d > maxDeg) maxDeg = d;
+  }
 
   // Sort eligible nodes for label assignment (by degree desc, tiebreak by papers)
   const sortedEligible = [...eligible].sort((a, b) =>
@@ -467,7 +469,7 @@ function buildGraph() {
   const visNodes = sortedEligible.map(name => {
     const person = peopleMap[name];
     const deg  = degree[name] || 0;
-    const c    = heatmapColor(deg, maxDeg);
+    const c    = heatmapColor(deg, maxDeg, 3);
     const sz   = nodeSize(person, scale, sizeMode);
     const shape = getNodeShape(name);
     return {
@@ -508,6 +510,8 @@ function buildGraph() {
       title: e.type === 'coauthor'
         ? `${e.weight} shared paper${e.weight !== 1 ? 's' : ''}`
         : `${e.weight} citation link${e.weight !== 1 ? 's' : ''}`,
+      _weight: e.weight,
+      _isCite: isCite,
     };
   });
 
@@ -520,14 +524,7 @@ function buildGraph() {
     edges: { smooth: { type: 'continuous', roundness: 0.2 } },
     physics: {
       enabled: physicsOn,
-      barnesHut: {
-        gravitationalConstant: -25000,
-        centralGravity: 0.015,
-        springLength: 900,
-        springConstant: 0.003,
-        damping: 0.45,
-        avoidOverlap: 1,
-      },
+      barnesHut: readPhysicsFromControls(),
       maxVelocity: 20,
       minVelocity: 0.2,
       solver: 'barnesHut',
@@ -551,11 +548,90 @@ function buildGraph() {
     visNodes.length + ' authors · ' + visEdges.length + ' connections';
 }
 
+function applySizing() {
+  if (!allNodes) return;
+  const sizeMode = document.getElementById('sizeMode').value;
+  const scale = parseFloat(document.getElementById('sizeScale').value) || 1.5;
+  const updates = [];
+  allNodes.forEach(node => {
+    const person = peopleMap[node.id];
+    if (!person) return;
+    const newSize = nodeSize(person, scale, sizeMode);
+    if (node.size !== newSize) updates.push({ id: node.id, size: newSize });
+  });
+  if (updates.length) allNodes.update(updates);
+}
+
+function applyEdgeWidths() {
+  if (!allEdges) return;
+  const maxEdgeW = parseInt(document.getElementById('maxEdgeWeight').value) || 8;
+  const updates = [];
+  allEdges.forEach(edge => {
+    const w = Math.min(edge._weight || 1, maxEdgeW);
+    const newWidth = 0.5 + w * 0.4;
+    if (edge.width !== newWidth) updates.push({ id: edge.id, width: newWidth });
+  });
+  if (updates.length) allEdges.update(updates);
+}
+
+function applyEdgeOpacity() {
+  if (!allEdges) return;
+  const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value) || 0.015;
+  const updates = allEdges.getIds().map(id => {
+    const edge = allEdges.get(id);
+    const baseHex = edge._isCite ? '#185fa5' : '#2d6a4f';
+    return {
+      id,
+      color: { color: hexToRgba(baseHex, edgeOpacity), highlight: baseHex, hover: '#888' }
+    };
+  });
+  if (updates.length) allEdges.update(updates);
+}
+
+function applyPhysicsParams() {
+  if (!vnet) return;
+  vnet.setOptions({ physics: { barnesHut: readPhysicsFromControls() } });
+}
+
+function applyLabelTop() {
+  if (!allNodes) return;
+  const labelTop = parseInt(document.getElementById('labelTop').value) || 30;
+  const nodes = allNodes.get();
+  const sorted = nodes.slice().sort((a, b) =>
+    (b._deg || 0) - (a._deg || 0) ||
+    ((peopleMap[b.id] && peopleMap[b.id].paperCount || 0) - (peopleMap[a.id] && peopleMap[a.id].paperCount || 0))
+  );
+  const labelSet = new Set(sorted.slice(0, labelTop).map(n => n.id));
+  labelSet.add(focalAuthorName);
+
+  const updates = nodes.map(node => {
+    const shouldLabel = labelSet.has(node.id);
+    const c = heatmapColor(node._deg || 0, node._maxDeg || 1, 3);
+    return {
+      id: node.id,
+      label: shouldLabel ? node.id.split(' ').slice(-1)[0] : '',
+      font: { color: c.font, size: shouldLabel ? 11 : 0, face: 'Outfit, system-ui, sans-serif' }
+    };
+  });
+  allNodes.update(updates);
+}
+
 function showPersonInfo(name) {
   const person = peopleMap[name];
   if (!person) return;
   document.getElementById('nodeInfo').style.display = 'block';
-  document.getElementById('infoName').textContent = name;
+  const nameEl = document.getElementById('infoName');
+  nameEl.textContent = '';
+  const link = document.createElement('a');
+  link.href = 'https://scholar.google.com/citations?mauthors=' + encodeURIComponent(name) + '&hl=en&view_op=search_authors';
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.style.color = 'inherit';
+  link.style.textDecoration = 'underline dotted';
+  link.style.textUnderlineOffset = '3px';
+  link.title = 'Search on Google Scholar';
+  link.textContent = name;
+  nameEl.appendChild(link);
   const role = name === focalAuthorName ? 'Focal author'
     : directCoauthors.has(name) ? 'Direct co-author'
     : mutualAuthors.has(name) ? 'Mutual citer'
@@ -597,10 +673,12 @@ function showPersonInfo(name) {
 
 function hidePersonInfo() {
   document.getElementById('nodeInfo').style.display = 'none';
+  if (!allNodes) return;
   // Restore each node's heatmap color from stored degree
-  const maxDeg = Math.max(1, ...allNodes.get().map(n => n._deg || 0));
-  allNodes.update(allNodes.get().map(n => {
-    const c = heatmapColor(n._deg || 0, maxDeg);
+  const nodes = allNodes.get();
+  const maxDeg = nodes.length ? (nodes[0]._maxDeg || 1) : 1;
+  allNodes.update(nodes.map(n => {
+    const c = heatmapColor(n._deg || 0, maxDeg, 3);
     return { id: n.id, color: { background: c.bg, border: c.border }, font: { color: c.font } };
   }));
 }
@@ -647,45 +725,69 @@ function initGraph() {
   document.getElementById('subtitle').textContent =
     totalAuthors + ' unique authors · ' + DATA.nodes.length + ' papers · ' + DATA.edges.length + ' citation links';
 
-  const maxPapers = Math.max(...Object.values(peopleMap).map(p => p.paperCount));
+  let maxPapers = 0;
+  Object.values(peopleMap).forEach(p => { if (p.paperCount > maxPapers) maxPapers = p.paperCount; });
   document.getElementById('minPapers').max = Math.min(maxPapers, 30);
 
   requestAnimationFrame(buildGraph);
 
-  document.getElementById('sizeMode').addEventListener('change', buildGraph);
-  ['minEdges','minPapers','sizeScale','maxEdgeWeight','edgeOpacity','labelTop','authorN'].forEach(id => {
+  // sizeMode is cosmetic — update sizes in place
+  document.getElementById('sizeMode').addEventListener('change', applySizing);
+
+  // Topology-changing sliders: debounced full rebuild
+  const debouncedRebuild = debounce(buildGraph, 120);
+  ['minEdges','minPapers','authorN'].forEach(id => {
     const el  = document.getElementById(id);
     const val = document.getElementById(id + 'Val');
     el.addEventListener('input', e => {
       if (val) {
-        // authorN: show "all" when 0
         val.textContent = (id === 'authorN' && e.target.value === '0') ? 'all' : e.target.value;
       }
-      buildGraph();
+      debouncedRebuild();
+    });
+  });
+
+  // Cosmetic-only sliders: update in place
+  const applySizingRaf = rafThrottle(applySizing);
+  document.getElementById('sizeScale').addEventListener('input', e => {
+    document.getElementById('sizeScaleVal').textContent = e.target.value;
+    applySizingRaf();
+  });
+
+  const applyEdgeWidthsRaf = rafThrottle(applyEdgeWidths);
+  document.getElementById('maxEdgeWeight').addEventListener('input', e => {
+    document.getElementById('maxEdgeWeightVal').textContent = e.target.value;
+    applyEdgeWidthsRaf();
+  });
+
+  const applyEdgeOpacityRaf = rafThrottle(applyEdgeOpacity);
+  document.getElementById('edgeOpacity').addEventListener('input', e => {
+    document.getElementById('edgeOpacityVal').textContent = e.target.value;
+    applyEdgeOpacityRaf();
+  });
+
+  const applyLabelTopRaf = rafThrottle(applyLabelTop);
+  document.getElementById('labelTop').addEventListener('input', e => {
+    document.getElementById('labelTopVal').textContent = e.target.value;
+    applyLabelTopRaf();
+  });
+
+  const applyPhysicsRaf = rafThrottle(applyPhysicsParams);
+  ['gravConst','centralGravity','springLength','springConst','damping','avoidOverlap'].forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    el.addEventListener('input', e => {
+      if (valEl) valEl.textContent = e.target.value;
+      applyPhysicsRaf();
     });
   });
 }
 
 setTimeout(() => {
-  const stored = localStorage.getItem('citemap_data');
-  if (stored) {
-    try {
-      DATA = JSON.parse(stored);
-      initGraph();
-    } catch (e) {
-      document.getElementById('loading').querySelector('span').textContent = 'Error: ' + e.message;
-    }
-  } else {
-    fetch('citation_data.json')
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(data => { DATA = data; initGraph(); })
-      .catch(e => {
-        const msg = e instanceof SyntaxError
-          ? 'No data found. Open index.html to fetch a citation network first.'
-          : 'Error loading data: ' + e.message;
-        document.getElementById('loading').querySelector('span').textContent = msg;
-      });
-  }
+  loadCitationData(
+    data => { DATA = data; initGraph(); },
+    msg  => { document.getElementById('loading').querySelector('span').textContent = msg; }
+  );
 }, 0);
 </script>
 </body>

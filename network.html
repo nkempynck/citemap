@@ -9,57 +9,16 @@
 <meta property="og:description" content="Interactive citation network — explore how papers cite and influence each other.">
 <meta property="og:type" content="website">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="network.css">
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<script src="graph-utils.js"></script>
 <style>
-:root {
-  --bg: #fafaf7; --bg2: #f0efea; --bg3: #e6e4dd;
-  --text: #1a1a18; --text2: #5c5b56; --text3: #8a8880;
-  --accent: #2d6a4f; --accent-dark: #1b4332;
-  --coral: #d85a30; --blue: #185fa5; --purple: #534ab7;
-  --sans: 'Outfit', system-ui, sans-serif;
-  --serif: 'Source Serif 4', Georgia, serif;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: var(--sans); background: var(--bg); color: var(--text); }
-.loading { display: flex; justify-content: center; align-items: center; height: 100vh; color: var(--text2); }
-.layout { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
-.sidebar { background: white; border-right: 1px solid rgba(0,0,0,0.08); overflow-y: auto; padding: 24px; }
-.sidebar h1 { font-family: var(--serif); font-size: 1.3rem; font-weight: 600; margin-bottom: 4px; }
-.sidebar .sub { font-size: 0.82rem; color: var(--text2); margin-bottom: 24px; font-weight: 300; }
-.control-group { margin-bottom: 18px; }
-.control-group label { display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); margin-bottom: 6px; font-weight: 500; }
-.control-group select, .control-group input[type=range] { width: 100%; font-family: var(--sans); }
-.control-group select { padding: 6px 8px; border: 1px solid var(--bg3); border-radius: 6px; font-size: 0.88rem; background: var(--bg); }
-.range-row { display: flex; align-items: center; gap: 8px; }
-.range-row input { flex: 1; }
-.range-val { font-family: var(--serif); font-weight: 600; font-size: 0.9rem; min-width: 34px; text-align: right; }
-.control-help { font-size: 0.75rem; color: var(--text3); margin-top: 5px; line-height: 1.35; }
-.legend { margin-top: 24px; }
-.legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; }
-.legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 .author-paper-item { padding: 5px 8px; border-radius: 5px; font-size: 0.8rem; cursor: pointer; line-height: 1.35; color: var(--text2); transition: background 0.1s; }
 .author-paper-item:hover { background: var(--bg2); color: var(--text); }
 .author-paper-item.selected { background: #faece7; color: var(--coral); font-weight: 500; }
 .author-paper-meta { font-size: 0.73rem; color: var(--text3); margin-top: 1px; }
-.node-info { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--bg3); display: none; }
-.node-info h3 { font-family: var(--serif); font-size: 1rem; font-weight: 600; margin-bottom: 8px; line-height: 1.4; }
-.node-info p { font-size: 0.82rem; color: var(--text2); margin-bottom: 4px; }
-.node-info a { color: var(--blue); text-decoration: none; font-size: 0.82rem; }
-.node-info a:hover { text-decoration: underline; }
-.graph-container { position: relative; }
-#network { width: 100%; height: 100vh; }
-.graph-controls { position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; }
-.graph-btn { padding: 6px 12px; border: 1px solid var(--bg3); border-radius: 6px; background: white; cursor: pointer; font-family: var(--sans); font-size: 0.82rem; }
-.graph-btn:hover { background: var(--bg2); }
-.graph-stats { position: absolute; bottom: 16px; left: 16px; font-size: 0.78rem; color: var(--text3); background: rgba(250,250,247,0.92); padding: 6px 12px; border-radius: 6px; }
 .legend-gradient { height: 10px; border-radius: 4px; margin-bottom: 4px; background: linear-gradient(to right, rgb(135,206,235), rgb(214,48,30)); }
 .legend-grad-row { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text3); }
-.config-summary { cursor: pointer; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; padding: 6px 0; margin-bottom: 6px; user-select: none; list-style: none; display: flex; align-items: center; gap: 6px; }
-.config-summary::-webkit-details-marker { display: none; }
-.config-summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
-details[open] .config-summary::before { transform: rotate(90deg); }
-.intro { font-size: 0.82rem; color: var(--text2); line-height: 1.55; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--bg3); }
-.mobile-wall { display: none; }
 .top-authors-panel { position: absolute; top: 16px; left: 16px; width: 210px; background: rgba(250,250,247,0.96); border: 1px solid var(--bg3); border-radius: 8px; font-size: 0.8rem; box-shadow: 0 2px 8px rgba(0,0,0,0.07); overflow: hidden; }
 .top-authors-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); font-weight: 500; border-bottom: 1px solid var(--bg3); cursor: pointer; user-select: none; }
 .top-authors-list { max-height: 320px; overflow-y: auto; }
@@ -72,10 +31,6 @@ details[open] .config-summary::before { transform: rotate(90deg); }
 .ta-tab:last-child { border-right: none; }
 .ta-tab:hover { background: var(--bg2); }
 .ta-tab-active { background: var(--bg2); color: var(--text); font-weight: 500; }
-@media (max-width: 720px) {
-  .mobile-wall { display: flex; position: fixed; inset: 0; background: var(--bg); z-index: 999; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 40px 32px; gap: 14px; }
-  .layout { display: none; }
-}
 </style>
 </head>
 <body>
@@ -214,18 +169,66 @@ details[open] .config-summary::before { transform: rotate(90deg); }
     <div class="control-group">
       <label>Edge opacity</label>
       <div class="range-row">
-        <input type="range" id="edgeOpacity" min="0.02" max="0.5" value="0.08" step="0.01">
-        <span class="range-val" id="edgeOpacityVal">0.08</span>
+        <input type="range" id="edgeOpacity" min="0.02" max="0.5" value="0.15" step="0.01">
+        <span class="range-val" id="edgeOpacityVal">0.15</span>
+      </div>
+    </div>
+
+    </details>
+
+    <details id="physicsPanel">
+    <summary class="config-summary">Physics</summary>
+
+    <div class="control-group">
+      <label>Repulsion strength</label>
+      <div class="range-row">
+        <input type="range" id="gravConst" min="-50000" max="-500" value="-12000" step="500">
+        <span class="range-val" id="gravConstVal">-12000</span>
+      </div>
+      <div class="control-help">More negative = nodes repel each other more strongly.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Central gravity</label>
+      <div class="range-row">
+        <input type="range" id="centralGravity" min="0" max="0.3" value="0.02" step="0.005">
+        <span class="range-val" id="centralGravityVal">0.02</span>
+      </div>
+      <div class="control-help">Pulls all nodes toward the center.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Spring length</label>
+      <div class="range-row">
+        <input type="range" id="springLength" min="50" max="2000" value="400" step="10">
+        <span class="range-val" id="springLengthVal">400</span>
+      </div>
+      <div class="control-help">Resting distance between connected nodes.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Spring stiffness</label>
+      <div class="range-row">
+        <input type="range" id="springConst" min="0" max="0.1" value="0.02" step="0.001">
+        <span class="range-val" id="springConstVal">0.02</span>
       </div>
     </div>
 
     <div class="control-group">
-      <label>Node spacing</label>
+      <label>Damping</label>
+      <div class="range-row">
+        <input type="range" id="damping" min="0.05" max="1" value="0.2" step="0.05">
+        <span class="range-val" id="dampingVal">0.2</span>
+      </div>
+      <div class="control-help">Higher = layout settles faster but may feel sluggish.</div>
+    </div>
+
+    <div class="control-group">
+      <label>Node spacing (avoid overlap)</label>
       <div class="range-row">
         <input type="range" id="avoidOverlap" min="0" max="1" value="1" step="0.05">
         <span class="range-val" id="avoidOverlapVal">1</span>
       </div>
-      <div class="control-help">Pushes nodes apart more strongly to reduce overlap.</div>
     </div>
 
     </details>
@@ -281,6 +284,47 @@ const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', mut
 const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
 const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
 const SHAPES = { author: 'dot', citing: 'diamond', reference: 'dot', mutual: 'square', level2: 'dot' };
+
+const labelCache = new Map();
+let hoveredEdgeIds = null;
+
+// Highlight state: track which nodes are currently dimmed and the current edge-color state,
+// so we can push minimal-diff updates instead of touching every node/edge per call.
+let dimmedNodeIds = new Set();
+let lastEdgeStateKey = '';
+const DIM_COLOR = 'rgba(210,208,200,0.2)';
+
+function applyNodeHighlight(visibleSet) {
+  if (!allNodes) return;
+  const newDimmed = new Set();
+  if (visibleSet) {
+    allNodes.forEach(n => {
+      if (!visibleSet.has(n.id)) newDimmed.add(n.id);
+    });
+  }
+  const updates = [];
+  newDimmed.forEach(id => {
+    if (!dimmedNodeIds.has(id)) {
+      updates.push({ id, color: { background: DIM_COLOR, border: DIM_COLOR } });
+    }
+  });
+  dimmedNodeIds.forEach(id => {
+    if (!newDimmed.has(id)) {
+      const node = allNodes.get(id);
+      if (!node) return;
+      const oc = node._data.origColor;
+      updates.push({ id, color: { background: oc.bg, border: oc.border } });
+    }
+  });
+  if (updates.length) allNodes.update(updates);
+  dimmedNodeIds = newDimmed;
+}
+
+function setEdgeStateKey(key) {
+  if (lastEdgeStateKey === key) return false;
+  lastEdgeStateKey = key;
+  return true;
+}
 
 function mergePreprints(data) {
   const titleMap = {};
@@ -349,21 +393,9 @@ function loadJsonFile(event) {
 
 // Defer data loading so all let/const declarations are initialized first (avoids TDZ errors)
 setTimeout(() => {
-  const stored = localStorage.getItem('citemap_data');
-  if (stored) {
-    try { loadData(JSON.parse(stored)); }
-    catch (e) { document.getElementById('loading').textContent = 'Failed to load stored data: ' + e; }
-  } else {
-    fetch('citation_data.json')
-      .then(r => r.json())
-      .then(loadData)
-      .catch(e => {
-        const msg = e instanceof SyntaxError
-          ? 'No data found. Open index.html to fetch a citation network, or deploy citation_data.json alongside this file.'
-          : 'Error loading data: ' + e;
-        document.getElementById('loading').textContent = msg;
-      });
-  }
+  loadCitationData(loadData, msg => {
+    document.getElementById('loading').textContent = msg;
+  });
 }, 0);
 
 function sliderToCitation(v) {
@@ -408,17 +440,6 @@ function nodeSize(cited, scale, mode) {
   return Math.max(4, sizeByMode[mode] || sizeByMode.asinh);
 }
 
-function heatmapColor(value, max) {
-  const t = max > 0 ? Math.min(1, Math.asinh((value || 0) / 4) / Math.asinh(max / 4)) : 0;
-  const r = Math.round(135 + (214 - 135) * t);
-  const g = Math.round(206 + (48  - 206) * t);
-  const b = Math.round(235 + (30  - 235) * t);
-  return {
-    bg: `rgb(${r},${g},${b})`,
-    border: `rgb(${Math.round(r * 0.68)},${Math.round(g * 0.68)},${Math.round(b * 0.68)})`
-  };
-}
-
 function shortTitle(title, maxLen) {
   if (!title) return '';
   return title.length > maxLen ? title.slice(0, maxLen - 1) + '…' : title;
@@ -446,14 +467,23 @@ function initGraph() {
   const authorCount = DATA.nodes.filter(n => n.type === 'author').length;
   document.getElementById('subtitle').textContent =
     authorCount + ' author papers · ' + DATA.nodes.length + ' papers in network · ' + DATA.edges.length + ' citation links';
-  renderAuthorPapers();
-  renderTopAuthors();
+  // Defer the heavy sidebar renders so the graph paints first.
+  const idle = window.requestIdleCallback || (cb => setTimeout(cb, 16));
+  idle(() => renderAuthorPapers(), { timeout: 500 });
+  idle(() => renderTopAuthors(), { timeout: 500 });
   document.title = DATA.author.name + ' — Citation Network';
   document.querySelector('meta[property="og:title"]').setAttribute('content', DATA.author.name + ' — Citation Network');
 
-  const years = DATA.nodes.map(n => n.year).filter(Boolean);
-  const minY = Math.min(...years), maxY = Math.max(...years);
-  const maxCites = Math.max(...DATA.nodes.map(n => n.cited_by_count || 0), 1);
+  let minY = Infinity, maxY = -Infinity, maxCites = 1;
+  DATA.nodes.forEach(n => {
+    if (n.year) {
+      if (n.year < minY) minY = n.year;
+      if (n.year > maxY) maxY = n.year;
+    }
+    const c = n.cited_by_count || 0;
+    if (c > maxCites) maxCites = c;
+  });
+  if (minY === Infinity) { minY = 0; maxY = 0; }
   maxCitationCount = maxCites;
   const yrMin = document.getElementById('yearMin');
   const yrMax = document.getElementById('yearMax');
@@ -463,9 +493,14 @@ function initGraph() {
   document.getElementById('yearMaxVal').textContent = maxY;
 
   // Author-paper year range (same bounds)
-  const authorYears = DATA.nodes.filter(n => n.type === 'author').map(n => n.year).filter(Boolean);
-  const authorMinY = authorYears.length ? Math.min(...authorYears) : minY;
-  const authorMaxY = authorYears.length ? Math.max(...authorYears) : maxY;
+  let authorMinY = Infinity, authorMaxY = -Infinity;
+  DATA.nodes.forEach(n => {
+    if (n.type === 'author' && n.year) {
+      if (n.year < authorMinY) authorMinY = n.year;
+      if (n.year > authorMaxY) authorMaxY = n.year;
+    }
+  });
+  if (authorMinY === Infinity) { authorMinY = minY; authorMaxY = maxY; }
   const ayrMin = document.getElementById('authorYearMin');
   const ayrMax = document.getElementById('authorYearMax');
   ayrMin.min = ayrMax.min = authorMinY; ayrMin.max = ayrMax.max = authorMaxY;
@@ -492,19 +527,57 @@ function initGraph() {
   // Defer first render so the browser applies display:grid before vis.js measures the container
   requestAnimationFrame(buildNetwork);
 
-  ['typeFilter','sizeMode','colorMode'].forEach(id => document.getElementById(id).addEventListener('change', buildNetwork));
-  ['yearMin','yearMax','authorYearMin','authorYearMax','sizeScale','labelThreshold','zoomLabelSensitivity','fontBase','edgeOpacity','avoidOverlap'].forEach(id => {
+  // Topology-changing controls: full rebuild (debounced for sliders)
+  document.getElementById('typeFilter').addEventListener('change', buildNetwork);
+  document.getElementById('colorMode').addEventListener('change', buildNetwork);
+  // sizeMode is structurally cosmetic — update sizes in place
+  document.getElementById('sizeMode').addEventListener('change', applySizing);
+
+  const debouncedRebuild = debounce(buildNetwork, 120);
+  ['yearMin','yearMax','authorYearMin','authorYearMax'].forEach(id => {
     const el = document.getElementById(id);
     const valEl = document.getElementById(id + 'Val');
-    if (!el) return;
     el.addEventListener('input', e => {
       if (valEl) valEl.textContent = e.target.value;
-      buildNetwork();
+      debouncedRebuild();
     });
   });
   document.getElementById('citeMin').addEventListener('input', e => {
     document.getElementById('citeMinVal').textContent = sliderToCitation(e.target.value);
-    buildNetwork();
+    debouncedRebuild();
+  });
+
+  // Cosmetic-only sliders: update in place, no rebuild
+  const applySizingRaf = rafThrottle(applySizing);
+  document.getElementById('sizeScale').addEventListener('input', e => {
+    document.getElementById('sizeScaleVal').textContent = e.target.value;
+    applySizingRaf();
+  });
+
+  const applyLabelsRaf = rafThrottle(applyDynamicLabels);
+  ['labelThreshold','zoomLabelSensitivity','fontBase'].forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    el.addEventListener('input', e => {
+      if (valEl) valEl.textContent = e.target.value;
+      applyLabelsRaf();
+    });
+  });
+
+  const applyEdgeOpacityRaf = rafThrottle(applyEdgeOpacity);
+  document.getElementById('edgeOpacity').addEventListener('input', e => {
+    document.getElementById('edgeOpacityVal').textContent = e.target.value;
+    applyEdgeOpacityRaf();
+  });
+
+  const applyPhysicsRaf = rafThrottle(applyPhysicsParams);
+  ['gravConst','centralGravity','springLength','springConst','damping','avoidOverlap'].forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    el.addEventListener('input', e => {
+      if (valEl) valEl.textContent = e.target.value;
+      applyPhysicsRaf();
+    });
   });
 }
 
@@ -562,7 +635,7 @@ function mergeSelected() {
     (b.year || 0) - (a.year || 0) || (b.cited_by_count || 0) - (a.cited_by_count || 0)
   );
   const canonical = toMerge[0];
-  const removed = toMerge.slice(1).map(n => n.id);
+  const removedSet = new Set(toMerge.slice(1).map(n => n.id));
 
   // Sum citations
   canonical.cited_by_count = toMerge.reduce((s, n) => s + (n.cited_by_count || 0), 0);
@@ -570,8 +643,8 @@ function mergeSelected() {
   // Remap edges
   DATA.edges = DATA.edges
     .map(e => ({
-      from: removed.includes(e.from) ? canonical.id : e.from,
-      to:   removed.includes(e.to)   ? canonical.id : e.to,
+      from: removedSet.has(e.from) ? canonical.id : e.from,
+      to:   removedSet.has(e.to)   ? canonical.id : e.to,
     }))
     .filter(e => e.from !== e.to);
 
@@ -585,7 +658,7 @@ function mergeSelected() {
   });
 
   // Remove non-canonical nodes
-  DATA.nodes = DATA.nodes.filter(n => !removed.includes(n.id));
+  DATA.nodes = DATA.nodes.filter(n => !removedSet.has(n.id));
 
   // Clear state
   mergeSelection.clear();
@@ -814,15 +887,12 @@ function highlightByAuthor() {
       document.querySelectorAll('.top-author-item').forEach(el => el.classList.remove('active'));
     }
     if (!selectedAuthorNodeId) {
-      const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
-      allNodes.update(allNodes.get().map(n => ({
-        id: n.id,
-        color: { background: n._data.origColor.bg, border: n._data.origColor.border }
-      })));
-      allEdges.update(allEdges.get().map(e => ({
-        id: e.id,
-        color: { color: `rgba(0,0,0,${edgeOpacity})` }
-      })));
+      applyNodeHighlight(null);
+      if (setEdgeStateKey('default')) {
+        const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
+        const c = `rgba(0,0,0,${edgeOpacity})`;
+        allEdges.update(allEdges.getIds().map(id => ({ id, color: { color: c } })));
+      }
     }
     return;
   }
@@ -851,16 +921,10 @@ function highlightByAuthor() {
     ? 'No matches'
     : `${matched.size} paper${matched.size === 1 ? '' : 's'} found`;
 
-  allNodes.update(allNodes.get().map(n => ({
-    id: n.id,
-    color: matched.has(n.id)
-      ? { background: n._data.origColor.bg, border: n._data.origColor.border }
-      : { background: 'rgba(210,208,200,0.2)', border: 'rgba(210,208,200,0.2)' }
-  })));
-  allEdges.update(allEdges.get().map(e => ({
-    id: e.id,
-    color: { color: 'rgba(0,0,0,0.03)' }
-  })));
+  applyNodeHighlight(matched);
+  if (setEdgeStateKey('dim')) {
+    allEdges.update(allEdges.getIds().map(id => ({ id, color: { color: 'rgba(0,0,0,0.03)' } })));
+  }
 
   if (matched.size > 0 && network) {
     network.selectNodes([...matched]);
@@ -876,19 +940,14 @@ function highlightAuthorPaper(nodeId, keep) {
     if (e.from === nodeId) connected.add(e.to);
     if (e.to === nodeId) connected.add(e.from);
   });
-  const nodeUpdates = allNodes.get().map(n => ({
-    id: n.id,
-    color: connected.has(n.id)
-      ? { background: n._data.origColor.bg, border: n._data.origColor.border }
-      : { background: 'rgba(210,208,200,0.2)', border: 'rgba(210,208,200,0.2)' }
-  }));
-  const edgeUpdates = allEdges.get().map(e => ({
-    id: e.id,
-    color: { color: (e.from === nodeId || e.to === nodeId) ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.03)' }
-  }));
-  allNodes.update(nodeUpdates);
-  allEdges.update(edgeUpdates);
-  // Focus camera on the node
+  applyNodeHighlight(connected);
+  if (setEdgeStateKey('paper-hover:' + nodeId)) {
+    const edgeUpdates = allEdges.get().map(e => ({
+      id: e.id,
+      color: { color: (e.from === nodeId || e.to === nodeId) ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.03)' }
+    }));
+    allEdges.update(edgeUpdates);
+  }
   if (network) network.focus(nodeId, { scale: 0.6, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
 }
 
@@ -898,15 +957,12 @@ function clearAuthorHighlight() {
   const searchInput = document.getElementById('authorSearchInput');
   if (searchInput && searchInput.value.trim()) { highlightByAuthor(); return; }
   if (!allNodes || !allEdges) return;
-  const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
-  allNodes.update(allNodes.get().map(n => ({
-    id: n.id,
-    color: { background: n._data.origColor.bg, border: n._data.origColor.border }
-  })));
-  allEdges.update(allEdges.get().map(e => ({
-    id: e.id,
-    color: { color: `rgba(0,0,0,${edgeOpacity})` }
-  })));
+  applyNodeHighlight(null);
+  if (setEdgeStateKey('default')) {
+    const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
+    const c = `rgba(0,0,0,${edgeOpacity})`;
+    allEdges.update(allEdges.getIds().map(id => ({ id, color: { color: c } })));
+  }
 }
 
 function selectAuthorPaper(nodeId) {
@@ -930,6 +986,10 @@ function selectAuthorPaper(nodeId) {
 }
 
 function buildNetwork() {
+  labelCache.clear();
+  hoveredEdgeIds = null;
+  dimmedNodeIds = new Set();
+  lastEdgeStateKey = 'default';
   const typeFilter = document.getElementById('typeFilter').value;
   const yearMin = parseInt(document.getElementById('yearMin').value);
   const yearMax = parseInt(document.getElementById('yearMax').value);
@@ -940,7 +1000,6 @@ function buildNetwork() {
   const colorMode = document.getElementById('colorMode').value;
   const sizeScale = parseFloat(document.getElementById('sizeScale').value);
   const edgeOpacity = parseFloat(document.getElementById('edgeOpacity').value);
-  const avoidOverlap = parseFloat(document.getElementById('avoidOverlap').value);
 
   // Update legend to match active color mode
   const legendEl = document.querySelector('.legend');
@@ -1013,10 +1072,13 @@ function buildNetwork() {
     }
   });
   // Author nodes have structurally inflated degree; normalize heatmap against non-author max only
-  const nonAuthorDegrees = DATA.nodes
-    .filter(n => n.type !== 'author' && visibleIds.has(n.id))
-    .map(n => degreeMap[n.id] || 0);
-  const maxDegree = Math.max(...nonAuthorDegrees.concat([1]));
+  let maxDegree = 1;
+  DATA.nodes.forEach(n => {
+    if (n.type !== 'author' && visibleIds.has(n.id)) {
+      const d = degreeMap[n.id] || 0;
+      if (d > maxDegree) maxDegree = d;
+    }
+  });
 
   // Pass 3: build node objects
   const nodes = [];
@@ -1082,14 +1144,7 @@ function buildNetwork() {
     physics: {
       enabled: physicsOn,
       stabilization: { iterations: 150, fit: true },
-      barnesHut: {
-        gravitationalConstant: -12000,
-        centralGravity: 0.02,
-        springLength: 400,
-        springConstant: 0.02,
-        damping: 0.2,
-        avoidOverlap: avoidOverlap
-      }
+      barnesHut: readPhysicsFromControls()
     },
     interaction: { hover: true, tooltipDelay: 200, zoomView: true },
   };
@@ -1101,43 +1156,51 @@ function buildNetwork() {
     selectedAuthorNodeId = null;
   }
 
-  if (network) network.destroy();
-  network = new vis.Network(container, data, options);
+  if (network) {
+    network.setData(data);
+    network.setOptions(options);
+  } else {
+    network = new vis.Network(container, data, options);
 
-  network.on('click', function(params) {
-    if (params.nodes.length > 0) {
-      const node = allNodes.get(params.nodes[0]);
-      showInfo(node._data);
-    }
-  });
+    network.on('click', function(params) {
+      if (params.nodes.length > 0) {
+        const node = allNodes.get(params.nodes[0]);
+        showInfo(node._data);
+      }
+    });
 
-  network.on('zoom', function(params) {
-    currentScale = params.scale;
-    applyDynamicLabels();
-  });
-  network.on('dragEnd', applyDynamicLabels);
-  network.on('stabilizationIterationsDone', function() {
-    network.fit();
-    currentScale = network.getScale();
-    applyDynamicLabels();
-  });
+    const labelsRaf = rafThrottle(applyDynamicLabels);
+    network.on('zoom', function(params) {
+      currentScale = params.scale;
+      labelsRaf();
+    });
+    network.on('dragEnd', applyDynamicLabels);
+    network.on('stabilizationIterationsDone', function() {
+      network.fit();
+      currentScale = network.getScale();
+      applyDynamicLabels();
+    });
+
+    network.on('hoverNode', function(params) {
+      hoveredEdgeIds = network.getConnectedEdges(params.node);
+      const updates = hoveredEdgeIds.map(edgeId => ({ id: edgeId, width: 3 }));
+      allEdges.update(updates);
+    });
+
+    network.on('blurNode', function() {
+      if (!hoveredEdgeIds || !hoveredEdgeIds.length) return;
+      const updates = hoveredEdgeIds.map(edgeId => ({ id: edgeId, width: 0.5 }));
+      allEdges.update(updates);
+      hoveredEdgeIds = null;
+    });
+  }
+
   setTimeout(() => {
     if (network) {
       currentScale = network.getScale();
       applyDynamicLabels();
     }
   }, 50);
-
-  network.on('hoverNode', function(params) {
-    const connectedEdges = network.getConnectedEdges(params.node);
-    const updates = connectedEdges.map(edgeId => ({ id: edgeId, width: 3 }));
-    allEdges.update(updates);
-  });
-
-  network.on('blurNode', function() {
-    const updates = allEdges.get().map(e => ({ id: e.id, width: 0.5 }));
-    allEdges.update(updates);
-  });
 }
 
 function applyDynamicLabels() {
@@ -1159,47 +1222,61 @@ function applyDynamicLabels() {
     const showLabel = isAuthor || cited >= threshold;
     const nodeFontSize = isAuthor ? fontSize + 5 : isHighlyCited ? fontSize + 3 : fontSize;
     const fontColor = colorMode === 'heatmap' ? '#1c1c1a' : FONT_COLORS[node._data.type];
-    const update = {
+    const newLabel = showLabel ? nodeLabel(node._data) : '';
+
+    const cached = labelCache.get(node.id);
+    if (cached && cached.label === newLabel && cached.size === nodeFontSize && cached.color === fontColor) return;
+    labelCache.set(node.id, { label: newLabel, size: nodeFontSize, color: fontColor });
+
+    updates.push({
       id: node.id,
-      label: showLabel ? nodeLabel(node._data) : '',
-      font: {
-        color: fontColor,
-        size: nodeFontSize,
-        face: 'Outfit',
-        strokeWidth: 3,
-        strokeColor: '#fafaf7'
-      }
-    };
-    updates.push(update);
+      label: newLabel,
+      font: { color: fontColor, size: nodeFontSize, face: 'Outfit', strokeWidth: 3, strokeColor: '#fafaf7' }
+    });
   });
-  allNodes.update(updates);
+  if (updates.length) allNodes.update(updates);
+}
+
+function applyEdgeOpacity() {
+  if (!allEdges) return;
+  const op = parseFloat(document.getElementById('edgeOpacity').value);
+  const color = `rgba(0,0,0,${op})`;
+  const updates = allEdges.getIds().map(id => ({
+    id,
+    color: { color, highlight: 'rgba(0,0,0,0.28)' }
+  }));
+  allEdges.update(updates);
+  lastEdgeStateKey = 'default';
+}
+
+function applySizing() {
+  if (!allNodes) return;
+  const sizeScale = parseFloat(document.getElementById('sizeScale').value);
+  const sizeMode = document.getElementById('sizeMode').value || 'asinh';
+  const updates = [];
+  allNodes.forEach(node => {
+    const newSize = nodeSize(node._data.cited_by_count || 0, sizeScale, sizeMode);
+    if (node.size !== newSize) updates.push({ id: node.id, size: newSize });
+  });
+  if (updates.length) allNodes.update(updates);
+}
+
+function applyPhysicsParams() {
+  if (!network) return;
+  network.setOptions({ physics: { barnesHut: readPhysicsFromControls() } });
 }
 
 function highlightByType(type) {
   if (!allNodes) return;
-  const updates = [];
+  const matched = new Set();
   allNodes.forEach(node => {
-    const match = node._data.type === type;
-    updates.push({
-      id: node.id,
-      color: match
-        ? { background: node._data.origColor.bg, border: node._data.origColor.border }
-        : { background: 'rgba(210,208,200,0.25)', border: 'rgba(210,208,200,0.25)' }
-    });
+    if (node._data.type === type) matched.add(node.id);
   });
-  allNodes.update(updates);
+  applyNodeHighlight(matched);
 }
 
 function clearHighlight() {
-  if (!allNodes) return;
-  const updates = [];
-  allNodes.forEach(node => {
-    updates.push({
-      id: node.id,
-      color: { background: node._data.origColor.bg, border: node._data.origColor.border }
-    });
-  });
-  allNodes.update(updates);
+  applyNodeHighlight(null);
 }
 
 function showInfo(n) {
