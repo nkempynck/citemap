@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>citemap</title>
+<script src="graph-utils.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -36,6 +37,11 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
 .candidate-card:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .candidate-name { font-weight: 500; margin-bottom: 2px; }
 .candidate-meta { font-size: 0.78rem; color: var(--text3); }
+.key-box { margin-top: 14px; font-size: 0.8rem; color: var(--text3); }
+.key-box summary { cursor: pointer; user-select: none; }
+.key-box .search-input { width: 100%; margin-top: 8px; font-size: 0.85rem; }
+.key-help { margin-top: 6px; line-height: 1.5; }
+.key-help a { color: var(--accent); }
 .msg { margin-top: 10px; font-size: 0.83rem; }
 .msg.error { color: var(--coral); }
 .msg.muted { color: var(--text3); }
@@ -72,6 +78,11 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); min-
   </div>
   <div id="searchMsg" class="msg"></div>
   <div id="candidates" class="candidates"></div>
+  <details class="key-box" id="keyBox">
+    <summary id="keySummary">OpenAlex API key (optional)</summary>
+    <input class="search-input" id="apiKeyInput" type="password" placeholder="Paste your key" autocomplete="off" spellcheck="false" oninput="saveApiKey()">
+    <p class="key-help">Without a key, everyone on your network shares a free allowance of about 1,000 requests a day, which a large author can use up. A free key from <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">openalex.org/settings/api</a> gives you your own allowance of about 10,000 a day. The key is stored only in this browser.</p>
+  </details>
 </div>
 
 <!-- Fetching -->
@@ -108,8 +119,11 @@ const MAILTO = 'citemap@tool.com';
 const MAX_CONCURRENT = 8;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Only the fields mkNode() and the reference step read; the full record is ~2.5x larger.
+const FIELDS = 'id,title,authorships,publication_year,publication_date,cited_by_count,primary_location,doi';
+
 let searching = false;
-let aborted = false;
+let runCtl = null; // AbortController of the current fetch; Cancel aborts it
 let resultData = null;
 let candidates = [];
 
@@ -123,24 +137,54 @@ function makeSem(n) {
 }
 const sem = makeSem(MAX_CONCURRENT);
 
+// ── API key (optional, per browser) ────────────────────────────────────────
+const KEY_STORE = 'citemap_openalex_key';
+function getApiKey() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (_) { return ''; } }
+function saveApiKey() {
+  const v = document.getElementById('apiKeyInput').value.trim();
+  try { v ? localStorage.setItem(KEY_STORE, v) : localStorage.removeItem(KEY_STORE); } catch (_) {}
+  showKeyState();
+}
+function showKeyState() {
+  document.getElementById('keySummary').textContent =
+    'OpenAlex API key (optional)' + (getApiKey() ? ' · saved' : '');
+}
+// Query parameter, not a header: a custom header would add a CORS preflight to every request.
+function withKey(url) {
+  const k = getApiKey();
+  return k ? `${url}&api_key=${encodeURIComponent(k)}` : url;
+}
+document.getElementById('apiKeyInput').value = getApiKey();
+showKeyState();
+
 // ── API ────────────────────────────────────────────────────────────────────
-async function api(path) {
-  if (aborted) throw new Error('aborted');
-  const url = `${BASE}/${path}${path.includes('?') ? '&' : '?'}mailto=${MAILTO}`;
+// "HTTP 401: <OpenAlex's reason>", so the log says why a request was refused.
+async function httpError(r) {
+  const text = await r.text().catch(() => '');
+  let reason = text.slice(0, 200);
+  try { const j = JSON.parse(text); reason = j.message || j.error || reason; } catch (_) {}
+  return new Error(`HTTP ${r.status}${reason ? ': ' + reason : ''}`);
+}
+
+async function api(path, signal) {
+  const url = withKey(`${BASE}/${path}${path.includes('?') ? '&' : '?'}mailto=${MAILTO}`);
   await sem.acquire();
   try {
     for (let t = 0; t < 4; t++) {
-      if (aborted) throw new Error('aborted');
+      signal.throwIfAborted();
       await sleep(50);
       let r;
-      try { r = await fetch(url); } catch (e) { if (t === 3) throw e; await sleep(600 * 2 ** t); continue; }
+      try { r = await fetch(url, { signal }); }
+      catch (e) { if (signal.aborted || t === 3) throw e; await sleep(600 * 2 ** t); continue; }
       if (r.status === 429) {
         const body = await r.json().catch(() => ({}));
         if (JSON.stringify(body).includes('daily_budget'))
-          throw new Error('OpenAlex daily request budget used up for this network. It resets at midnight UTC.');
+          throw new Error(getApiKey()
+            ? 'Daily OpenAlex budget for this API key used up. It resets at midnight UTC.'
+            : 'OpenAlex daily request budget used up for this network. It resets at midnight UTC. A free API key (below the search box) gives you your own.');
         await sleep(2000 * 2 ** t); continue;
       }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      if (!r.ok) throw await httpError(r);
       return r.json();
     }
     throw new Error('max retries');
@@ -149,10 +193,10 @@ async function api(path) {
 
 // Numbered pages, not cursor=: OpenAlex requires an API key for cursor paging
 // past page 1, while page=N works keyless up to 10,000 results.
-async function allPages(path, cap = 10000) {
+async function allPages(path, signal, cap = 10000) {
   const out = [];
   for (let page = 1; out.length < cap; page++) {
-    const d = await api(`${path}${path.includes('?') ? '&' : '?'}page=${page}`);
+    const d = await api(`${path}${path.includes('?') ? '&' : '?'}page=${page}`, signal);
     const items = d.results || [];
     out.push(...items);
     if (items.length < 200) break;
@@ -166,11 +210,15 @@ const xid = url => (url || '').split('/').pop();
 function mkNode(w, type) {
   const a = w.authorships || [];
   const first = a[0]?.author?.display_name || '';
+  const named = a.filter(x => x?.author?.display_name);
   return {
     id: xid(w.id),
     title: w.title || 'Untitled',
     authors: !a.length ? 'Unknown' : a.length === 1 ? first : `${first} et al.`,
-    authors_list: a.map(x => x?.author?.display_name).filter(Boolean),
+    authors_list: named.map(x => x.author.display_name),
+    // OpenAlex author ids, aligned with authors_list; the people graph keys on these
+    // so namesakes stay apart and one person's name variants stay together.
+    author_ids: named.map(x => xid(x.author.id) || null),
     year: w.publication_year || null,
     date: w.publication_date || null,
     cited_by_count: w.cited_by_count || 0,
@@ -181,102 +229,8 @@ function mkNode(w, type) {
   };
 }
 
-function fetchCiting(workId, cap = 2000) {
-  return allPages(`works?filter=cites:${workId}&sort=cited_by_count:desc&per_page=200`, cap);
-}
-
-// ── Version merging ────────────────────────────────────────────────────────
-const TYPE_P = { author: 5, mutual: 4, citing: 3, reference: 2, level2: 1 };
-
-class UF {
-  find(x) { return this[x] = (this[x] === undefined || this[x] === x) ? x : this.find(this[x]); }
-  union(a, b) { this[this.find(a)] = this.find(b); }
-}
-
-function normDoi(d) {
-  if (!d) return null;
-  const s = d.replace(/https?:\/\/doi\.org\//i, '').toLowerCase();
-  return s.startsWith('10.48550') ? null : s;
-}
-
-function firstLast(n) {
-  const l = n.authors_list?.length ? n.authors_list : [(n.authors || '').replace(' et al.', '')];
-  const parts = (l[0] || '').trim().split(/\s+/);
-  return parts[parts.length - 1]?.toLowerCase() || null;
-}
-
-function sim(a, b) {
-  const w = s => new Set((s || '').toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(x => x.length > 2));
-  const wa = w(a), wb = w(b);
-  if (wa.size < 3 || wb.size < 3) return 0;
-  const inter = [...wa].filter(x => wb.has(x)).length;
-  // Use containment (overlap / shorter set) so subtitle additions don't tank the score
-  return inter / Math.min(wa.size, wb.size);
-}
-
-function mergeVersions(nodeMap, edges) {
-  const uf = new UF();
-  const arr = Object.values(nodeMap);
-
-  // DOI matching
-  const doiIdx = {};
-  arr.forEach(n => { const d = normDoi(n.doi); if (!d) return; doiIdx[d] ? uf.union(n.id, doiIdx[d]) : (doiIdx[d] = n.id); });
-
-  // Title + author + year bucket matching
-  const bkts = {};
-  arr.forEach(n => {
-    const ln = firstLast(n); if (!ln || !n.year) return;
-    for (let dy = -2; dy <= 2; dy++) {
-      const k = `${ln}|${(n.year || 0) + dy}`;
-      (bkts[k] = bkts[k] || []).push(n);
-    }
-  });
-  const compared = new Set();
-  arr.forEach(n => {
-    const ln = firstLast(n); if (!ln || !n.year) return;
-    (bkts[`${ln}|${n.year}`] || []).forEach(m => {
-      if (m.id === n.id) return;
-      const pk = [n.id, m.id].sort().join('~');
-      if (compared.has(pk)) return; compared.add(pk);
-      if (sim(n.title, m.title) >= 0.85) uf.union(n.id, m.id);
-    });
-  });
-
-  // Build groups and canonical nodes
-  const groups = {};
-  arr.forEach(n => { const r = uf.find(n.id); (groups[r] = groups[r] || []).push(n); });
-  const remap = {}, merged = {};
-  // Track non-canonical nodes that had outgoing reference edges (author/mutual type)
-  // so we can drop those edges and keep only the canonical version's references
-  const nonCanonRefSources = new Set();
-  let collapsed = 0;
-  Object.values(groups).forEach(g => {
-    if (g.length === 1) { merged[g[0].id] = g[0]; return; }
-    collapsed += g.length - 1;
-    // Canonical = latest year, tiebreak: most citations
-    g.sort((a, b) => (b.year || 0) - (a.year || 0) || (b.cited_by_count || 0) - (a.cited_by_count || 0));
-    const c = { ...g[0] };
-    c.cited_by_count = g.reduce((s, n) => s + (n.cited_by_count || 0), 0);
-    c.type = g.reduce((best, n) => (TYPE_P[n.type] || 0) > (TYPE_P[best] || 0) ? n.type : best, c.type);
-    g.forEach(n => { remap[n.id] = c.id; });
-    // Non-canonical nodes: all except the first (canonical) in sorted order
-    g.slice(1).forEach(n => {
-      if (n.type === 'author' || n.type === 'mutual') nonCanonRefSources.add(n.id);
-    });
-    merged[c.id] = c;
-  });
-
-  // Remap edges, keeping only the canonical version's outgoing reference edges
-  const edgeSeen = new Set(), remapped = [];
-  edges.forEach(e => {
-    // Drop outgoing edges from non-canonical author/mutual versions (their references)
-    if (nonCanonRefSources.has(e.from)) return;
-    const f = remap[e.from] || e.from, t = remap[e.to] || e.to;
-    if (f === t || !merged[f] || !merged[t]) return;
-    const k = `${f}|${t}`; if (!edgeSeen.has(k)) { edgeSeen.add(k); remapped.push({ from: f, to: t }); }
-  });
-
-  return { nodes: merged, edges: remapped, collapsed };
+function fetchCiting(workId, signal, cap = 2000) {
+  return allPages(`works?filter=cites:${workId}&sort=cited_by_count:desc&per_page=200&select=${FIELDS}`, signal, cap);
 }
 
 // ── UI helpers ─────────────────────────────────────────────────────────────
@@ -302,7 +256,9 @@ async function doSearch() {
   $('candidates').innerHTML = '';
 
   try {
-    const d = await fetch(`${BASE}/authors?search=${encodeURIComponent(q)}&per_page=5&mailto=${MAILTO}`).then(r => r.json());
+    const r = await fetch(withKey(`${BASE}/authors?search=${encodeURIComponent(q)}&per_page=5&mailto=${MAILTO}`));
+    if (!r.ok) throw await httpError(r);
+    const d = await r.json();
     candidates = (d.results || []).map(r => ({
       id: r.id.split('/').pop(),
       name: r.display_name || '',
@@ -331,64 +287,42 @@ async function doSearch() {
 
 function pick(i) {
   const r = candidates[i];
-  aborted = false;
+  if (runCtl) runCtl.abort();
+  runCtl = new AbortController();
   show('viewFetch');
   $('fetchAuthor').textContent = r.name;
   $('fetchMeta').textContent = `${r.institution} · ${r.works} works · ${r.citations.toLocaleString()} citations`;
   $('logBox').innerHTML = '';
   progress(0);
-  runFetch(r.id, r.name);
+  runFetch(r.id, r.name, runCtl.signal);
 }
 
-function cancelFetch() { aborted = true; show('viewSearch'); }
-
-// ── Self-healing ───────────────────────────────────────────────────────────
-let healAvailable = false;
-// Silently probe for serve.py on page load
-fetch('/status', { signal: AbortSignal.timeout(400) })
-  .then(r => r.json()).then(d => { if (d.heal) healAvailable = true; }).catch(() => {});
-
-async function tryHeal(err) {
-  if (!healAvailable) return false;
-  log('Self-healing: sending error to Claude…', 'head');
-  try {
-    const r = await fetch('/heal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: err.message, context: err.stack || '' }),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      log('Fixed! Reloading in 2 s…', 'head');
-      setTimeout(() => location.reload(), 2000);
-      return true;
-    }
-    log('Healing failed: ' + (data.error || 'unknown'), 'err');
-  } catch (e) {
-    log('Could not reach heal endpoint: ' + e.message, 'err');
-  }
-  return false;
-}
+function cancelFetch() { if (runCtl) runCtl.abort(); show('viewSearch'); }
 
 // ── Main fetch ─────────────────────────────────────────────────────────────
-async function runFetch(authorId, authorName) {
+async function runFetch(authorId, authorName, signal) {
+  // A cancelled run must not show results or errors: a newer run may own the page.
   try {
-    resultData = await fetchAll(authorId, authorName);
+    const data = await fetchAll(authorId, authorName, signal);
+    if (signal.aborted) return;
+    resultData = data;
     showDone();
   } catch (e) {
-    if (e.message === 'aborted') return;
+    if (signal.aborted) return;
     log('Fatal: ' + e.message, 'err');
-    const healed = await tryHeal(e);
-    if (!healed) log('Fetch stopped. You can cancel and try again.', 'err');
+    log('Fetch stopped. You can cancel and try again.', 'err');
   }
 }
 
-async function fetchAll(authorId, authorName) {
+async function fetchAll(authorId, authorName, signal) {
+  // Shadow the page-level log/progress so a cancelled run stops writing to the page.
+  const log = (...a) => { if (!signal.aborted) globalThis.log(...a); };
+  const progress = p => { if (!signal.aborted) globalThis.progress(p); };
   const nodes = {}, edgeSet = new Set();
 
   // 1. Author profile
   log('Fetching author profile…', 'head');
-  const ad = await api(`authors/${authorId}`);
+  const ad = await api(`authors/${authorId}`, signal);
   const inst = (ad.last_known_institutions || [])[0]?.display_name || 'Unknown';
   const authorInfo = {
     name: ad.display_name || authorName,
@@ -403,7 +337,7 @@ async function fetchAll(authorId, authorName) {
 
   // 2. Author works
   log('Fetching author works…', 'head');
-  const rawWorks = await allPages(`works?filter=author.id:${authorId}&sort=cited_by_count:desc&per_page=200`);
+  const rawWorks = await allPages(`works?filter=author.id:${authorId}&sort=cited_by_count:desc&per_page=200&select=${FIELDS},referenced_works`, signal);
   rawWorks.forEach(w => { const n = mkNode(w, 'author'); nodes[n.id] = n; });
   const authorIds = new Set(Object.keys(nodes));
   log(`  Found ${rawWorks.length} author works`);
@@ -415,9 +349,8 @@ async function fetchAll(authorId, authorName) {
   log(`Fetching citing papers for ${rawWorks.length} works…`, 'head');
   let citingDone = 0;
   await Promise.all(rawWorks.map(async w => {
-    if (aborted) return;
     const wid = xid(w.id);
-    const citers = await fetchCiting(wid, 2000);
+    const citers = await fetchCiting(wid, signal);
     citers.forEach(c => { const n = mkNode(c, 'citing'); if (!nodes[n.id]) nodes[n.id] = n; edgeSet.add(`${n.id}|${wid}`); });
     citingDone++;
     log(`  [${citingDone}/${rawWorks.length}] ${(w.title||'').substring(0,50)}… → ${citers.length} citers`);
@@ -434,12 +367,12 @@ async function fetchAll(authorId, authorName) {
   const allRefIds = [...new Set(Object.values(refByWork).flat())];
   log(`  ${allRefIds.length} unique reference IDs`);
   const batches = [];
-  for (let i = 0; i < allRefIds.length; i += 50) batches.push(allRefIds.slice(i, i + 50));
+  // 100 is OpenAlex's maximum number of OR-ed values in one filter.
+  for (let i = 0; i < allRefIds.length; i += 100) batches.push(allRefIds.slice(i, i + 100));
   log(`  Fetching metadata in ${batches.length} batches…`);
   const refMeta = {};
   await Promise.all(batches.map(async batch => {
-    if (aborted) return;
-    const d = await api(`works?filter=openalex:${batch.join('|')}&per_page=200`);
+    const d = await api(`works?filter=openalex:${batch.join('|')}&per_page=100&select=${FIELDS}`, signal);
     (d.results || []).forEach(w => { const n = mkNode(w, 'reference'); refMeta[n.id] = n; });
   }));
   Object.entries(refByWork).forEach(([wid, refs]) => refs.forEach(rid => {
@@ -534,7 +467,7 @@ function doDownload() {
 }
 
 function reset() {
-  resultData = null; aborted = false; searching = false;
+  resultData = null; searching = false;
   $('searchInput').value = ''; $('candidates').innerHTML = '';
   $('searchMsg').textContent = ''; $('storageWarn').textContent = '';
   $('viewNetBtn').style.display = '';

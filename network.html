@@ -237,7 +237,6 @@
       <div class="legend-item"><div class="legend-dot" style="background:#d85a30"></div> Author's works</div>
       <div class="legend-item"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
       <div class="legend-item"><div class="legend-dot" style="background:#185fa5"></div> References</div>
-      <div class="legend-item"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
       <div style="margin-top:8px;font-size:0.78rem;color:var(--text3)">Labels always show for the author's papers. Other labels appear progressively as you zoom in.</div>
     </div>
 
@@ -280,10 +279,10 @@
 
 <script>
 let DATA, network, allNodes, allEdges, physicsOn = true, currentScale = 1, maxCitationCount = 1;
-const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', mutual: '#8b5cf6', level2: '#534ab7' };
-const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
-const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9', level2: '#3c3489' };
-const SHAPES = { author: 'dot', citing: 'diamond', reference: 'dot', mutual: 'square', level2: 'dot' };
+const COLORS = { author: '#d85a30', citing: '#2d6a4f', reference: '#185fa5', mutual: '#8b5cf6' };
+const BORDERS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9' };
+const FONT_COLORS = { author: '#a33d1a', citing: '#1b4332', reference: '#0c447c', mutual: '#6d28d9' };
+const SHAPES = { author: 'dot', citing: 'diamond', reference: 'dot', mutual: 'square' };
 
 const labelCache = new Map();
 let hoveredEdgeIds = null;
@@ -326,52 +325,13 @@ function setEdgeStateKey(key) {
   return true;
 }
 
-function mergePreprints(data) {
-  const titleMap = {};
-  const idRemap = {};
-  data.nodes.forEach(n => {
-    const key = (n.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
-    if (titleMap[key]) {
-      const existing = titleMap[key];
-      if (n.cited_by_count > existing.cited_by_count) {
-        idRemap[existing.id] = n.id;
-        existing.id = n.id;
-        existing.cited_by_count = n.cited_by_count;
-        existing.venue = n.venue || existing.venue;
-        existing.doi = n.doi || existing.doi;
-        existing.url = n.url || existing.url;
-        existing.date = n.date && existing.date ? (n.date > existing.date ? n.date : existing.date) : (n.date || existing.date);
-        existing.year = n.year && existing.year ? Math.max(n.year, existing.year) : (n.year || existing.year);
-        if (n.type === 'author') existing.type = 'author';
-        else if (n.type === 'mutual' || existing.type === 'mutual') existing.type = 'mutual';
-      } else {
-        idRemap[n.id] = existing.id;
-        existing.cited_by_count = Math.max(existing.cited_by_count, n.cited_by_count);
-        existing.url = existing.url || n.url;
-        if (n.type === 'author') existing.type = 'author';
-        else if (n.type === 'mutual' || existing.type === 'mutual') existing.type = 'mutual';
-      }
-    } else {
-      titleMap[key] = { ...n };
-    }
-  });
-  const mergedNodes = Object.values(titleMap);
-  const edgeSet = new Set();
-  const mergedEdges = [];
-  data.edges.forEach(e => {
-    const from = idRemap[e.from] || e.from;
-    const to = idRemap[e.to] || e.to;
-    if (from === to) return;
-    const key = from + '>' + to;
-    if (!edgeSet.has(key)) {
-      edgeSet.add(key);
-      mergedEdges.push({ from, to });
-    }
-  });
-  return { ...data, nodes: mergedNodes, edges: mergedEdges };
-}
+let PAPER_ID_REMAP = {}; // merged-away id -> surviving id, from dedupeData
 
-function loadData(data) { DATA = mergePreprints(data); initGraph(); }
+function loadData(data) {
+  const r = dedupeData(data);
+  DATA = r.data; PAPER_ID_REMAP = r.remap;
+  initGraph();
+}
 
 function loadJsonFile(event) {
   const file = event.target.files[0];
@@ -450,7 +410,7 @@ function nodeLabel(n) {
   const lastName = raw.split(' ').pop();
   const suffix = (n.authors || '').includes(' et al.') || raw.includes(',') ? ' et al.' : '';
   const year = n.year || '';
-  return lastName && year ? `${lastName}${suffix}, ${year}` : lastName || year || shortTitle(n.title, 30);
+  return lastName && year ? `${lastName}${suffix}, ${year}` : lastName || year || shortTitle(plainTitle(n.title), 30);
 }
 
 function initGraph() {
@@ -729,8 +689,8 @@ function renderAuthorPapers() {
         <div style="display:flex;align-items:flex-start;gap:8px">
           <div style="width:16px;height:16px;flex-shrink:0;margin-top:2px;border-radius:3px;border:2px solid ${selected ? '#185fa5' : 'var(--text3)'};background:${selected ? '#185fa5' : 'transparent'};display:flex;align-items:center;justify-content:center;font-size:10px;color:white">${selected ? '✓' : ''}</div>
           <div>
-            <div>${n.title || 'Untitled'}</div>
-            <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+            <div>${titleHtml(n.title || 'Untitled')}</div>
+            <div class="author-paper-meta">${escapeHtml([n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · '))}</div>
           </div>
         </div>
       </div>
@@ -755,8 +715,8 @@ function renderAuthorPapers() {
             onclick="event.stopPropagation(); toggleAuthorPaper('${n.id}', this.checked)"
             style="margin-top:2px;flex-shrink:0;cursor:pointer">
           <div>
-            <div>${n.title || 'Untitled'}</div>
-            <div class="author-paper-meta">${[n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · ')}</div>
+            <div>${titleHtml(n.title || 'Untitled')}</div>
+            <div class="author-paper-meta">${escapeHtml([n.year, n.venue, (n.cited_by_count || 0) + ' citations'].filter(Boolean).join(' · '))}</div>
           </div>
         </div>
       </div>
@@ -830,10 +790,11 @@ function renderTopAuthors() {
     container.innerHTML = '<div style="padding:10px 12px;color:var(--text3);font-size:0.78rem">Re-scrape to get full author lists</div>';
     return;
   }
+  // Names go through data-name rather than into JS source, so quotes in names are harmless.
   container.innerHTML = sorted.map(([name, count]) => `
-    <div class="top-author-item" id="ta-${CSS.escape(name)}"
-      onclick="clickTopAuthor('${name.replace(/'/g, "\\'")}')">
-      <span class="top-author-name" title="${name}">${name}</span>
+    <div class="top-author-item${name === activeTopAuthor ? ' active' : ''}" data-name="${escapeHtml(name)}"
+      onclick="clickTopAuthor(this.dataset.name)">
+      <span class="top-author-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
       <span class="top-author-count">${count}</span>
     </div>
   `).join('');
@@ -856,11 +817,8 @@ function clickTopAuthor(name) {
     document.getElementById('authorSearchPanel').open = true;
   }
   // Update active styling
-  document.querySelectorAll('.top-author-item').forEach(el => el.classList.remove('active'));
-  if (activeTopAuthor) {
-    const el = document.getElementById('ta-' + CSS.escape(name));
-    if (el) el.classList.add('active');
-  }
+  document.querySelectorAll('.top-author-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.name === activeTopAuthor));
 }
 
 function toggleTopAuthors() {
@@ -1026,14 +984,13 @@ function buildNetwork() {
       <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('citing')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#2d6a4f"></div> Citing papers</div>
       <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('reference')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#185fa5"></div> References</div>
       <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('mutual')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#8b5cf6"></div> Mutual (citing + reference)</div>
-      <div class="legend-item" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background 0.15s" onmouseenter="highlightByType('level2')" onmouseleave="clearHighlight()"><div class="legend-dot" style="background:#534ab7"></div> Level 2</div>
       <div style="margin-top:8px;font-size:0.75rem;color:var(--text3)">Hover a type to highlight. Labels always show for the author's papers.</div>`;
   }
 
   // Pass 1: determine which nodes are visible
   const visibleIds = new Set();
   DATA.nodes.forEach(n => {
-    if (typeFilter === 'no-ref' && (n.type === 'reference' || n.type === 'level2')) return;
+    if (typeFilter === 'no-ref' && n.type === 'reference') return;
     if (typeFilter === 'author-only' && n.type !== 'author') return;
     if (n.year && (n.year < yearMin || n.year > yearMax)) return;
     if (n.type === 'author' && n.year && (n.year < authorYearMin || n.year > authorYearMax)) return;
@@ -1107,7 +1064,7 @@ function buildNetwork() {
       id: n.id,
       label: '',
       hiddenLabel: nodeLabel(n),
-      title: (n.title || '') + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0) + '\nConnections: ' + degree,
+      title: plainTitle(n.title) + '\n' + (n.authors || '') + '\n' + (n.year || '') + ' | ' + (n.venue || '') + '\nCitations: ' + (n.cited_by_count || 0) + '\nConnections: ' + degree,
       shape: SHAPES[n.type] || 'dot',
       size: sz,
       color: { background: bgColor, border: borderColor },
@@ -1193,6 +1150,8 @@ function buildNetwork() {
       allEdges.update(updates);
       hoveredEdgeIds = null;
     });
+
+    focusRequestedPaper();
   }
 
   setTimeout(() => {
@@ -1201,6 +1160,21 @@ function buildNetwork() {
       applyDynamicLabels();
     }
   }, 50);
+}
+
+// people_network.html links here with a paper to focus (sessionStorage 'highlight_paper').
+function focusRequestedPaper() {
+  let id = null;
+  try { id = sessionStorage.getItem('highlight_paper'); sessionStorage.removeItem('highlight_paper'); } catch (_) {}
+  if (id && PAPER_ID_REMAP[id]) id = PAPER_ID_REMAP[id];
+  const paper = id && DATA.nodes.find(n => n.id === id);
+  if (!paper) return;
+  showInfo(paper);
+  if (!allNodes.get(id)) return; // hidden by the current filters; the info panel still shows it
+  network.selectNodes([id]);
+  // Runs after the stabilisation handler's fit(), so the focus isn't overridden.
+  network.once('stabilizationIterationsDone', () =>
+    network.focus(id, { scale: 1, animation: { duration: 600, easingFunction: 'easeInOutQuad' } }));
 }
 
 function applyDynamicLabels() {
@@ -1282,11 +1256,11 @@ function clearHighlight() {
 function showInfo(n) {
   const info = document.getElementById('nodeInfo');
   info.style.display = 'block';
-  document.getElementById('infoTitle').textContent = n.title;
+  document.getElementById('infoTitle').textContent = plainTitle(n.title);
   document.getElementById('infoAuthors').textContent = n.authors || '';
   document.getElementById('infoMeta').textContent = [n.year, n.venue, (n.cited_by_count || 0) + ' citations', n.type].filter(Boolean).join(' · ');
   const link = document.getElementById('infoLink');
-  link.href = n.doi || n.url || '#';
+  link.href = safeHref(n.doi || n.url);
   link.style.display = (n.doi || n.url) ? 'inline' : 'none';
 }
 

@@ -213,7 +213,11 @@
 // vis.Network instance — use "vnet" to avoid collision with <div id="network">
 let DATA, vnet, allNodes, allEdges, physicsOn = true;
 let currentEdgeMode = 'both';
-let focalAuthorName = '';
+// A person key is an opaque union of names and OpenAlex author ids (see buildPeopleData).
+// NAMES maps key -> the name shown.
+let focalKey = '';
+let NAMES = {};
+let paperPeople = new Map(); // paper id -> person keys, aligned with authors_list
 let directCoauthors = new Set(); // co-authored at least one focal-author paper
 let mutualAuthors = new Set();   // appear on both citing-direction and reference-direction papers
 let referenceAuthors = new Set(); // focal cites their work (one-way)
@@ -242,7 +246,7 @@ function buildEdges(n) {
 
   setStatus('Building co-authorship edges…');
   DATA.nodes.forEach(paper => {
-    const authors = eligibleAuthorsForPaper(paper.authors_list || [], n);
+    const authors = eligibleAuthorsForPaper(paperPeople.get(paper.id) || [], n);
     for (let i = 0; i < authors.length; i++) {
       for (let j = i + 1; j < authors.length; j++) {
         const key = authors[i] < authors[j]
@@ -256,7 +260,7 @@ function buildEdges(n) {
   setStatus('Building citation influence edges…');
   const paperToAuthors = {};
   DATA.nodes.forEach(p => {
-    paperToAuthors[p.id] = eligibleAuthorsForPaper(p.authors_list || [], n);
+    paperToAuthors[p.id] = eligibleAuthorsForPaper(paperPeople.get(p.id) || [], n);
   });
   DATA.edges.forEach(e => {
     const from = paperToAuthors[e.from] || [];
@@ -275,7 +279,7 @@ function buildEdges(n) {
 }
 
 function getNodeShape(name) {
-  if (name === focalAuthorName) return 'star';
+  if (name === focalKey) return 'star';
   if (directCoauthors.has(name)) return 'square';
   if (mutualAuthors.has(name))   return 'hexagon';
   if (citingAuthors.has(name))   return 'diamond';
@@ -291,13 +295,44 @@ function buildPeopleData(data) {
   peopleMap = {};
   coauthorEdges = {};
   citationEdges = {};
-  focalAuthorName = data.author.name;
 
   setStatus('Collecting authors…');
 
+  // A person = names and OpenAlex author ids linked together: one id under two spellings
+  // is one person, and so is one exact name under several ids. OpenAlex often splits a
+  // person into a main profile plus one-paper fragments, so keying on the id alone would
+  // scatter their papers. Data without author_ids reduces to keying on the name.
+  const uf = new UF();
+  data.nodes.forEach(paper => {
+    const ids = paper.author_ids || [];
+    (paper.authors_list || []).forEach((nm, i) => {
+      if (ids[i]) uf.union('i:' + ids[i], 'n:' + nm); else uf.find('n:' + nm);
+    });
+  });
+
+  // Person keys per paper, and the most common spelling of each person's name
+  paperPeople = new Map();
+  const nameCounts = {};
+  data.nodes.forEach(paper => {
+    const names = paper.authors_list || [];
+    const keys = names.map(nm => uf.find('n:' + nm));
+    paperPeople.set(paper.id, keys);
+    keys.forEach((k, i) => {
+      const c = nameCounts[k] = nameCounts[k] || {};
+      c[names[i]] = (c[names[i]] || 0) + 1;
+    });
+  });
+  NAMES = {};
+  Object.entries(nameCounts).forEach(([k, c]) => {
+    NAMES[k] = Object.entries(c).sort((a, b) => b[1] - a[1])[0][0];
+  });
+  const focalId = 'i:' + data.author.openalex_id;
+  focalKey = uf[focalId] !== undefined ? uf.find(focalId) : uf.find('n:' + data.author.name);
+  NAMES[focalKey] = NAMES[focalKey] || data.author.name;
+
   // Collect per-author paper lists
   data.nodes.forEach(paper => {
-    (paper.authors_list || []).forEach(author => {
+    paperPeople.get(paper.id).forEach(author => {
       if (!peopleMap[author]) {
         peopleMap[author] = { papers: [], totalCitations: 0, paperCount: 0 };
       }
@@ -315,8 +350,8 @@ function buildPeopleData(data) {
   data.nodes
     .filter(p => p.type === 'author')
     .forEach(paper => {
-      (paper.authors_list || []).forEach(a => {
-        if (a !== focalAuthorName) directCoauthors.add(a);
+      paperPeople.get(paper.id).forEach(a => {
+        if (a !== focalKey) directCoauthors.add(a);
       });
     });
 
@@ -324,8 +359,8 @@ function buildPeopleData(data) {
   // Mutual papers count as both directions (they both cite and are cited by focal).
   const authorPaperTypes = {};
   data.nodes.forEach(paper => {
-    (paper.authors_list || []).forEach(a => {
-      if (a === focalAuthorName || directCoauthors.has(a)) return;
+    paperPeople.get(paper.id).forEach(a => {
+      if (a === focalKey || directCoauthors.has(a)) return;
       (authorPaperTypes[a] = authorPaperTypes[a] || new Set()).add(paper.type);
     });
   });
@@ -374,7 +409,7 @@ function highlightCategory(category) {
   const maxDeg = nodes.length ? (nodes[0]._maxDeg || 1) : 1;
   allNodes.update(nodes.map(n => {
     const match = category === null
-      || (category === 'focal'     && n.id === focalAuthorName)
+      || (category === 'focal'     && n.id === focalKey)
       || (category === 'coauthor'  && directCoauthors.has(n.id))
       || (category === 'mutual'    && mutualAuthors.has(n.id))
       || (category === 'citing'    && citingAuthors.has(n.id))
@@ -434,7 +469,7 @@ function buildGraph() {
   });
   // Always keep focal author regardless of degree
   const eligible = new Set(
-    Object.keys(degree).filter(n => degree[n] >= minEdges || n === focalAuthorName)
+    Object.keys(degree).filter(n => degree[n] >= minEdges || n === focalKey)
   );
   lastDegreeMap = degree;
 
@@ -464,7 +499,7 @@ function buildGraph() {
     (degree[b] || 0) - (degree[a] || 0) || peopleMap[b].paperCount - peopleMap[a].paperCount
   );
   const labelSet = new Set(sortedEligible.slice(0, labelTop));
-  labelSet.add(focalAuthorName);
+  labelSet.add(focalKey);
 
   const visNodes = sortedEligible.map(name => {
     const person = peopleMap[name];
@@ -474,8 +509,8 @@ function buildGraph() {
     const shape = getNodeShape(name);
     return {
       id: name,
-      label: labelSet.has(name) ? name.split(' ').slice(-1)[0] : undefined,
-      title: makeTooltip(name, `${person.paperCount} paper${person.paperCount !== 1 ? 's' : ''} · ${person.totalCitations} citations · ${deg} connection${deg !== 1 ? 's' : ''}`),
+      label: labelSet.has(name) ? NAMES[name].split(' ').slice(-1)[0] : undefined,
+      title: makeTooltip(NAMES[name], `${person.paperCount} paper${person.paperCount !== 1 ? 's' : ''} · ${person.totalCitations} citations · ${deg} connection${deg !== 1 ? 's' : ''}`),
       size: sz,
       shape,
       color: { background: c.bg, border: c.border },
@@ -602,37 +637,38 @@ function applyLabelTop() {
     ((peopleMap[b.id] && peopleMap[b.id].paperCount || 0) - (peopleMap[a.id] && peopleMap[a.id].paperCount || 0))
   );
   const labelSet = new Set(sorted.slice(0, labelTop).map(n => n.id));
-  labelSet.add(focalAuthorName);
+  labelSet.add(focalKey);
 
   const updates = nodes.map(node => {
     const shouldLabel = labelSet.has(node.id);
     const c = heatmapColor(node._deg || 0, node._maxDeg || 1, 3);
     return {
       id: node.id,
-      label: shouldLabel ? node.id.split(' ').slice(-1)[0] : '',
+      label: shouldLabel ? NAMES[node.id].split(' ').slice(-1)[0] : '',
       font: { color: c.font, size: shouldLabel ? 11 : 0, face: 'Outfit, system-ui, sans-serif' }
     };
   });
   allNodes.update(updates);
 }
 
-function showPersonInfo(name) {
+function showPersonInfo(name) { // name: person key (author id or name)
   const person = peopleMap[name];
   if (!person) return;
+  const displayName = NAMES[name] || name;
   document.getElementById('nodeInfo').style.display = 'block';
   const nameEl = document.getElementById('infoName');
   nameEl.textContent = '';
   const link = document.createElement('a');
-  link.href = 'https://scholar.google.com/citations?mauthors=' + encodeURIComponent(name) + '&hl=en&view_op=search_authors';
+  link.href = 'https://scholar.google.com/citations?mauthors=' + encodeURIComponent(displayName) + '&hl=en&view_op=search_authors';
   link.target = '_blank';
   link.rel = 'noopener';
   link.style.color = 'inherit';
   link.style.textDecoration = 'underline dotted';
   link.style.textUnderlineOffset = '3px';
   link.title = 'Search on Google Scholar';
-  link.textContent = name;
+  link.textContent = displayName;
   nameEl.appendChild(link);
-  const role = name === focalAuthorName ? 'Focal author'
+  const role = name === focalKey ? 'Focal author'
     : directCoauthors.has(name) ? 'Direct co-author'
     : mutualAuthors.has(name) ? 'Mutual citer'
     : citingAuthors.has(name) ? 'Citing author'
@@ -647,7 +683,7 @@ function showPersonInfo(name) {
   sorted.forEach(p => {
     const item = document.createElement('div');
     item.className = 'paper-item';
-    item.innerHTML = `<span>${p.title || p.id}</span><br><span class="paper-item-year">${p.year || ''}${p.venue ? ' · ' + p.venue : ''} · ${p.cited_by_count} citations</span>`;
+    item.innerHTML = `<span>${titleHtml(p.title || p.id)}</span><br><span class="paper-item-year">${escapeHtml(`${p.year || ''}${p.venue ? ' · ' + p.venue : ''} · ${p.cited_by_count} citations`)}</span>`;
     item.onclick = () => {
       sessionStorage.setItem('highlight_paper', p.id);
       window.location.href = 'network.html';
@@ -785,7 +821,7 @@ function initGraph() {
 
 setTimeout(() => {
   loadCitationData(
-    data => { DATA = data; initGraph(); },
+    data => { DATA = dedupeData(data).data; initGraph(); },
     msg  => { document.getElementById('loading').querySelector('span').textContent = msg; }
   );
 }, 0);

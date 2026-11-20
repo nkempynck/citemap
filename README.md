@@ -12,7 +12,7 @@ cd citemap
 python -m http.server 8000
 ```
 
-Open [http://localhost:8000](http://localhost:8000), search for an author, and view their citation network. Everything runs in the browser — no Python dependencies for basic use.
+Open [http://localhost:8000](http://localhost:8000), search for an author, and view their citation network. Everything runs in the browser; there is nothing to install.
 
 > Opening `index.html` directly as a file won't work because browsers block cross-origin requests from `file://`. Use the local server.
 
@@ -23,19 +23,7 @@ Open [http://localhost:8000](http://localhost:8000), search for an author, and v
 | `index.html` | Search and fetch — the entry point |
 | `network.html` | Interactive citation graph |
 | `portal.html` | Table view with search and filters |
-
-## Self-healing mode
-
-If you have an Anthropic API key, run `serve.py` instead of `http.server`:
-
-```bash
-pip install anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-python serve.py
-```
-
-`serve.py` does everything `http.server` does, plus: if the fetch in `index.html` throws an unrecoverable error (e.g. the OpenAlex API changed its response format), it automatically sends the error and the source code to Claude, writes the fix back to `index.html`, and reloads the browser. No manual debugging needed.
+| `people_network.html` | Graph of researchers: co-authorship and citation links |
 
 ## Why OpenAlex?
 
