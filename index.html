@@ -134,7 +134,12 @@ async function api(path) {
       await sleep(50);
       let r;
       try { r = await fetch(url); } catch (e) { if (t === 3) throw e; await sleep(600 * 2 ** t); continue; }
-      if (r.status === 429) { await sleep(2000 * 2 ** t); continue; }
+      if (r.status === 429) {
+        const body = await r.json().catch(() => ({}));
+        if (JSON.stringify(body).includes('daily_budget'))
+          throw new Error('OpenAlex daily request budget used up for this network. It resets at midnight UTC.');
+        await sleep(2000 * 2 ** t); continue;
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     }
@@ -142,16 +147,17 @@ async function api(path) {
   } finally { sem.release(); }
 }
 
-async function allPages(path) {
-  const out = []; let cursor = '*';
-  while (true) {
-    const d = await api(`${path}${path.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`);
+// Numbered pages, not cursor=: OpenAlex requires an API key for cursor paging
+// past page 1, while page=N works keyless up to 10,000 results.
+async function allPages(path, cap = 10000) {
+  const out = [];
+  for (let page = 1; out.length < cap; page++) {
+    const d = await api(`${path}${path.includes('?') ? '&' : '?'}page=${page}`);
     const items = d.results || [];
     out.push(...items);
-    cursor = d.meta?.next_cursor;
-    if (!cursor || items.length < 200) break;
+    if (items.length < 200) break;
   }
-  return out;
+  return out.slice(0, cap);
 }
 
 // ── Data helpers ───────────────────────────────────────────────────────────
@@ -175,16 +181,8 @@ function mkNode(w, type) {
   };
 }
 
-async function fetchCiting(workId, cap = 2000) {
-  const out = []; let cursor = '*';
-  while (out.length < cap) {
-    const d = await api(`works?filter=cites:${workId}&sort=cited_by_count:desc&per_page=200&cursor=${encodeURIComponent(cursor)}`);
-    const items = d.results || [];
-    out.push(...items);
-    cursor = d.meta?.next_cursor;
-    if (!cursor || items.length < 200) break;
-  }
-  return out.slice(0, cap);
+function fetchCiting(workId, cap = 2000) {
+  return allPages(`works?filter=cites:${workId}&sort=cited_by_count:desc&per_page=200`, cap);
 }
 
 // ── Version merging ────────────────────────────────────────────────────────
